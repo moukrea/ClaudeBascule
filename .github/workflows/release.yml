@@ -66,12 +66,14 @@ jobs:
       - name: Set the version
         shell: bash
         run: |
-          perl -0pi -e 's/(\[workspace\.package\]\nversion = ")[^"]*"/${1}$ENV{VERSION}"/' Cargo.toml
-          grep -A1 '^\[workspace.package\]' Cargo.toml
+          # Windows checkouts have CRLF line endings.
+          perl -0pi -e 's/(\[workspace\.package\]\r?\nversion = ")[^"]*"/${1}$ENV{VERSION}"/' Cargo.toml
+          grep -q "^version = \"$VERSION\"" Cargo.toml || { echo "::error::could not set the version in Cargo.toml"; exit 1; }
       - name: Build (Linux)
         if: matrix.kind == 'linux'
         run: |
           cargo build --release -p bascule -p bascule-app
+          test "$(target/release/bascule --version)" = "bascule $VERSION"
           dist/package.sh linux target/release out
       - name: Build (macOS, universal)
         if: matrix.kind == 'macos'
@@ -82,12 +84,15 @@ jobs:
           for b in bascule bascule-app; do
             lipo -create -output universal/$b target/aarch64-apple-darwin/release/$b target/x86_64-apple-darwin/release/$b
           done
+          test "$(universal/bascule --version)" = "bascule $VERSION"
           dist/package.sh macos universal out "$VERSION"
       - name: Build (Windows)
         if: matrix.kind == 'windows'
         shell: pwsh
         run: |
           cargo build --release -p bascule -p bascule-app
+          $v = & target/release/bascule.exe --version
+          if ($v -ne "bascule $env:VERSION") { throw "built version is '$v', expected $env:VERSION" }
           New-Item -ItemType Directory -Force out | Out-Null
           Compress-Archive -Path target/release/bascule.exe, target/release/bascule-app.exe -DestinationPath out/claude-bascule-windows-x86_64.zip
       - uses: actions/upload-artifact@v4
