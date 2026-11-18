@@ -1,0 +1,13 @@
+# Credentials and runtime state must never be committed.
+.credentials.json*
+*.credentials*
+.claude.json*
+*.key
+*.token
+state/
+
+# Build output
+target/
+node_modules/
+__pycache__/
+*.pyc

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Bascule</title>
+<link rel="icon" href="logo-mask.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="frame" class="frame">
+  <header class="bar" data-tauri-drag-region>
+    <div id="wc" class="wc"></div>
+    <div class="bar-left" data-tauri-drag-region>
+      <div class="mark" aria-hidden="true" data-tauri-drag-region><span class="glyph" data-tauri-drag-region></span></div>
+      <span class="wordmark" data-tauri-drag-region>Claude Bascule</span>
+      <nav id="tabs" class="tabs" role="tablist"><span class="tab-ind" aria-hidden="true"></span></nav>
+    </div>
+    <div class="bar-right" data-tauri-drag-region>
+      <span id="upd" hidden></span>
+      <span id="link" class="link-state"></span>
+      <span id="auto"></span>
+      <button id="settings-btn" class="icon-btn" type="button"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="page"></main>
+  <footer id="legal" class="legal"></footer>
+</div>
+<div class="rz" aria-hidden="true">
+  <span data-rz="North" class="rz-n"></span><span data-rz="South" class="rz-s"></span><span data-rz="East" class="rz-e"></span><span data-rz="West" class="rz-w"></span>
+  <span data-rz="NorthWest" class="rz-nw"></span><span data-rz="NorthEast" class="rz-ne"></span><span data-rz="SouthWest" class="rz-sw"></span><span data-rz="SouthEast" class="rz-se"></span>
+</div>
+<div id="layer"></div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
