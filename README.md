@@ -62,8 +62,20 @@ and starts with your session.
 2. Click **Add an account** and sign in to each of your other Claude accounts in your browser.
 3. That's it: automatic switching is on (the lightning toggle at the top).
 
-To resume interrupted sessions automatically, install [jaunt](https://jaunt.one) and click
-**Connect jaunt** at the top of the window.
+## With or without jaunt
+
+Claude Bascule works on its own: it reads every account's quotas from Anthropic (the account in
+use every 5 minutes) and switches before the threshold.
+
+With [jaunt](https://jaunt.one) installed, it also sees your Claude Code sessions live, which adds:
+
+- a switch the moment a session hits a limit, instead of at the next quota read;
+- fresher numbers for the account in use between two reads;
+- per-model limits (a model's weekly limit) counted only for models your sessions are using;
+- resuming the sessions a limit interrupted.
+
+The jaunt dot at the top of the window shows the connection: green when connected; click it to
+connect when jaunt is installed but not connected yet.
 
 ## Uninstall
 
