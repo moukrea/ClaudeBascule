@@ -54,13 +54,27 @@ pub fn serve(
     tx: Sender<Cmd>,
     updates: Arc<Mutex<crate::update::UpdateState>>,
 ) -> Result<()> {
+    // Windows has no Unix sockets: a 127.0.0.1 port, and a key every request must carry.
+    #[cfg(not(unix))]
+    let (listener, key) = {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).context("bind 127.0.0.1")?;
+        let key = platform::random_key();
+        let port = listener.local_addr()?.port();
+        crate::store::atomic_write(
+            &json_path(&paths),
+            &json!({"port": port, "key": key, "pid": std::process::id()}),
+        )?;
+        (listener, Some(key))
+    };
+    #[cfg(unix)]
+    let key = None;
     let ctx = Arc::new(Ctx {
         paths: paths.clone(),
         shared,
         tx: Mutex::new(tx),
         login: Default::default(),
         child: Default::default(),
-        key: None,
+        key,
         updates,
     });
     #[cfg(unix)]
@@ -82,17 +96,6 @@ pub fn serve(
     }
     #[cfg(not(unix))]
     {
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).context("bind 127.0.0.1")?;
-        let key = platform::random_key();
-        let port = listener.local_addr()?.port();
-        crate::store::atomic_write(
-            &json_path(&paths),
-            &json!({"port": port, "key": key, "pid": std::process::id()}),
-        )?;
-        let ctx = Arc::new(Ctx {
-            key: Some(key),
-            ..Arc::try_unwrap(ctx).ok().expect("fresh")
-        });
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let ctx = ctx.clone();
