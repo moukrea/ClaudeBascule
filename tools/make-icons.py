@@ -4,8 +4,9 @@ the glyph in white, centred in a squircle of the default accent (coral).
 
     python3 tools/make-icons.py
 
-Writes app/icons/* (Tauri, Windows .ico, macOS .icns), app/ui/logo-mask.png and
-app/ui/squircle.svg (the in-app mark, coloured by CSS), and assets/icon-*.png.
+Writes app/icons/* (Tauri, Windows .ico, macOS .icns), app/ui/logo.svg and app/ui/squircle.svg
+(the in-app mark, coloured by CSS), assets/icon.svg (Linux launcher, any size) and assets/icon-256.png.
+assets/logo.svg is the glyph traced from the PNG (vector, crisp at every size).
 """
 import math
 from pathlib import Path
@@ -13,7 +14,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 CORAL = (224, 83, 45, 255)  # #e0532d, the default accent (app.js ACCENTS.coral)
-N = 5.0  # superellipse exponent: a squircle
+N = 4.0  # |x|^4 + |y|^4 = 1: the squircle
 
 
 def squircle_points(size, margin=0.0, steps=720):
@@ -36,7 +37,7 @@ def glyph_mask():
     return a.crop(a.getbbox())
 
 
-def icon(size, margin_ratio=0.0, glyph_ratio=0.60):
+def icon(size, margin_ratio=0.0, glyph_ratio=0.62):
     ss = 4  # supersampling for smooth edges
     big = size * ss
     canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
@@ -56,28 +57,33 @@ def icon(size, margin_ratio=0.0, glyph_ratio=0.60):
 def main():
     icons = ROOT / "app/icons"
     icons.mkdir(parents=True, exist_ok=True)
-    full = icon(1024, margin_ratio=0.03)
-    full.resize((512, 512), Image.LANCZOS).save(icons / "icon.png")
+    # Each size is drawn on its own (supersampled), small ones with a bigger glyph to stay legible.
+    sized = lambda s: icon(s, margin_ratio=0.03, glyph_ratio=0.70 if s <= 32 else 0.62)
+    sized(512).save(icons / "icon.png")
     for s in (32, 128):
-        full.resize((s, s), Image.LANCZOS).save(icons / f"{s}x{s}.png")
-    full.resize((256, 256), Image.LANCZOS).save(icons / "128x128@2x.png")
-    full.save(icons / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+        sized(s).save(icons / f"{s}x{s}.png")
+    sized(256).save(icons / "128x128@2x.png")
+    ico = [sized(s) for s in (256, 128, 64, 48, 32, 24, 16)]
+    ico[0].save(icons / "icon.ico", sizes=[im.size for im in ico], append_images=ico[1:])
     # macOS: the shape sits inside Apple's 824/1024 grid.
     icon(1024, margin_ratio=0.0977).save(icons / "icon.icns")
     # README and release assets.
     assets = ROOT / "assets"
-    full.resize((256, 256), Image.LANCZOS).save(assets / "icon-256.png")
-    # In-app mark: the glyph as a mask (CSS colours it), and the squircle shape.
-    g = glyph_mask()
-    side = max(g.width, g.height)
-    sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    white = Image.new("RGBA", g.size, (255, 255, 255, 255))
-    white.putalpha(g)
-    sq.alpha_composite(white, ((side - g.width) // 2, (side - g.height) // 2))
-    sq.resize((256, 256), Image.LANCZOS).save(ROOT / "app/ui/logo-mask.png", optimize=True)
+    sized(256).save(assets / "icon-256.png")
+    # Vector: the squircle, the glyph (app mark, coloured by CSS) and the whole icon.
     pts = squircle_points(100, 0, 360)
     d = "M" + " L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + " Z"
     (ROOT / "app/ui/squircle.svg").write_text(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="{d}"/></svg>\n')
+    logo = (ROOT / "assets/logo.svg").read_text()
+    (ROOT / "app/ui/logo.svg").write_text(logo)
+    glyph = logo[logo.index("<path"):logo.index("/>", logo.index("<path")) + 2].replace("<path", '<path fill="#fff"', 1)
+    pts = squircle_points(100, 3, 360)
+    d3 = "M" + " L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + " Z"
+    k = 0.62 * 94 / 100
+    o = (100 - 100 * k) / 2
+    (ROOT / "assets/icon.svg").write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#e0532d" d="{d3}"/>'
+        f'<g transform="translate({o:.3f} {o:.3f}) scale({k:.4f})">{glyph}</g></svg>\n')
 
 
 if __name__ == "__main__":

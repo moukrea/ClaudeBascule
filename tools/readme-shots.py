@@ -110,7 +110,7 @@ def main():
 html, body {{ margin: 0; background: transparent; }}
 .h {{ display: flex; align-items: center; justify-content: center; gap: 26px; height: 160px; font: 600 60px Plex; letter-spacing: -.03em; color: {ink}; }}
 img {{ width: 104px; height: 104px; }}
-</style><div class="h"><img src="{ROOT / 'assets/icon-256.png'}"><span>Claude Bascule</span></div>""")
+</style><div class="h"><img src="{ROOT / 'assets/icon.svg'}"><span>Claude Bascule</span></div>""")
             hp = OUT / f"header-{theme}.png"
             shoot(ui / f"header-{theme}.html", hp, 640, 160, theme == "dark")
             im = Image.open(hp)

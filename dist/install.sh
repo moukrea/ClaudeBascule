@@ -73,7 +73,7 @@ if [ "$os" = "Linux" ]; then
   bin="$HOME/.local/bin"
   data="${XDG_DATA_HOME:-$HOME/.local/share}"
   conf="${XDG_CONFIG_HOME:-$HOME/.config}"
-  mkdir -p "$bin" "$data/applications" "$data/icons/hicolor/256x256/apps"
+  mkdir -p "$bin" "$data/applications" "$data/icons/hicolor/256x256/apps" "$data/icons/hicolor/scalable/apps"
   # Replace the binaries without disturbing running copies (new file, then rename).
   for b in bascule bascule-app; do
     cp "$tmp/x/$b" "$bin/.$b.new"
@@ -81,6 +81,7 @@ if [ "$os" = "Linux" ]; then
     mv -f "$bin/.$b.new" "$bin/$b"
   done
   cp "$tmp/x/claude-bascule.png" "$data/icons/hicolor/256x256/apps/claude-bascule.png"
+  [ -f "$tmp/x/claude-bascule.svg" ] && cp "$tmp/x/claude-bascule.svg" "$data/icons/hicolor/scalable/apps/claude-bascule.svg"
   cat > "$data/applications/claude-bascule.desktop" <<EOF
 [Desktop Entry]
 Type=Application

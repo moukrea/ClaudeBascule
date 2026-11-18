@@ -12,6 +12,7 @@ case "$kind" in
   linux)
     install -m 0755 "$bin/bascule" "$bin/bascule-app" "$stage/"
     install -m 0644 "$here/app/icons/icon.png" "$stage/claude-bascule.png"
+    install -m 0644 "$here/assets/icon.svg" "$stage/claude-bascule.svg"
     tar -czf "$out/claude-bascule-linux-x86_64.tar.gz" -C "$stage" .
     ;;
   macos)

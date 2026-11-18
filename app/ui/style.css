@@ -82,7 +82,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 /* The app's mark: the logo glyph centred in a squircle of the accent colour (white glyph in light mode). */
 .mark { width: 34px; height: 34px; flex: none; background: var(--accent); display: grid; place-items: center;
   -webkit-mask: url(squircle.svg) center / 100% 100% no-repeat; mask: url(squircle.svg) center / 100% 100% no-repeat; }
-.mark .glyph { width: 60%; height: 60%; background: var(--on-accent); -webkit-mask: url(logo-mask.png) center / contain no-repeat; mask: url(logo-mask.png) center / contain no-repeat; }
+.mark .glyph { width: 60%; height: 60%; background: var(--on-accent); -webkit-mask: url(logo.svg) center / contain no-repeat; mask: url(logo.svg) center / contain no-repeat; }
 .wordmark { font-weight: 600; font-size: 16px; letter-spacing: -.02em; margin-right: 14px; }
 .tabs { position: relative; display: inline-flex; background: var(--soft); border-radius: 999px; padding: 4px; gap: 2px; }
 /* The selected pill slides between tabs. */
