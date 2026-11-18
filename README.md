@@ -93,4 +93,4 @@ until you delete it.
 - **Something is wrong?** [Open an issue](https://github.com/moukrea/ClaudeBascule/issues).
 - **Want to help?** See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-MIT licence.
+MIT licence. Account icons from [Lucide](https://lucide.dev) (ISC licence).

@@ -54,6 +54,8 @@ pub struct Settings {
     pub read_resets: bool,
     /// Display names by account id; a display name hides the account's email everywhere.
     pub display_names: std::collections::BTreeMap<String, String>,
+    /// An icon (app/ui/avatars.js) in place of the initial, by account id.
+    pub avatar_icons: std::collections::BTreeMap<String, String>,
     /// Demo mode: mask every email address (in the mini-app and in notifications).
     pub hide_emails: bool,
     /// Language of the mini-app, notifications and the default resume message: one of
@@ -91,6 +93,7 @@ impl Default for Settings {
             notify: true,
             read_resets: true,
             display_names: Default::default(),
+            avatar_icons: Default::default(),
             hide_emails: false,
             language: String::new(),
             check_updates: true,
