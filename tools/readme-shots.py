@@ -42,7 +42,8 @@ def fake_state(lang):
                 "min_switch_gap_seconds": 300, "next_account_rule": "headroom", "notify": True, "observe_poll_seconds": 30,
                 "read_resets": True, "refresh_days_before": 3, "reread_resting_minutes": 15, "reset_margin_seconds": 120,
                 "resume_message": "", "rotation": [], "spontaneous_restart_seconds": 10, "switch_on_limit": True,
-                "threshold_percent": 95.0, "thresholds": {}, "check_updates": True}
+                "threshold_percent": 95.0, "thresholds": {}, "check_updates": True,
+                "avatar_icons": {"alex": "rocket", "studio": "briefcase", "lab": "flask-conical"}}
     accounts = [
         account("alex", "alex@example.com", "active", "default_claude_max_20x", [win("seven_day", 71, 3), win("model:Fable", 88, 3)], 1),
         account("studio", "studio@example.org", "resting", "default_claude_max_20x", [win("seven_day", 34, 5), win("model:Fable", 41, 5)], 0),
