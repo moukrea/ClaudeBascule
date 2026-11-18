@@ -70,8 +70,17 @@ try {
     }
 
     Start-Process -FilePath $app -ArgumentList '--service' -WindowStyle Hidden
+    # Wait for the service to answer before opening the window.
+    # (PowerShell 5 turns a native command's error output into errors: not fatal here.)
+    $cli = Join-Path $dir 'bascule.exe'
+    $ErrorActionPreference = 'Continue'
+    for ($i = 0; $i -lt 30; $i++) {
+        try { & $cli state *> $null } catch { }
+        if ($LASTEXITCODE -eq 0) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    $ErrorActionPreference = 'Stop'
     if (-not $env:CLAUDE_BASCULE_NO_LAUNCH) {
-        Start-Sleep -Milliseconds 800
         Start-Process -FilePath $app
     }
     Write-Host 'Claude Bascule is installed.' -ForegroundColor Green

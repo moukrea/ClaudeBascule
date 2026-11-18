@@ -53,6 +53,14 @@ fn main() {
         }
         return;
     }
+    // Linux: name the program like its desktop entry (claude-bascule.desktop), so docks and
+    // launchers tie the window to its icon (Wayland app id, X11 WM_CLASS). GTK has no name
+    // otherwise, as Tauri initialises it without arguments.
+    #[cfg(target_os = "linux")]
+    {
+        gtk::glib::set_prgname(Some("claude-bascule"));
+        gtk::gdk::set_program_class("claude-bascule");
+    }
     let paths = Paths::from_env();
     let _ = bascule_core::store::private_dir(&paths.state);
     let pid_file = paths.state.join("app.pid");

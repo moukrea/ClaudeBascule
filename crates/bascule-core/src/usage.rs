@@ -254,7 +254,8 @@ pub fn fetch(access_token: &str, with_resets: bool) -> Result<Usage> {
         ),
         None => (URL.to_string(), "bascule".to_string()),
     };
-    let resp = ureq::get(&url)
+    let resp = crate::net::agent()
+        .get(&url)
         .set("Authorization", &format!("Bearer {access_token}"))
         .set("anthropic-beta", "oauth-2025-04-20")
         .set("Accept", "application/json")

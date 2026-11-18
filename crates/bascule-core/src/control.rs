@@ -411,6 +411,12 @@ fn login_start(ctx: &Arc<Ctx>, name: &str) -> Result<Value> {
             )
             .map(|_| "done".to_string());
         }
+        // Read the account at once: its card shows the new sign-in instead of waiting for the
+        // next regular read of resting accounts.
+        if result.is_ok() {
+            let (tx, _rx) = channel();
+            let _ = ctx2.tx.lock().unwrap().send(Cmd::Reread { reply: tx });
+        }
         let mut s = ctx2.login.lock().unwrap();
         if s.status == "cancelled" {
             return;

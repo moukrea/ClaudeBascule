@@ -6,6 +6,7 @@ pub mod daemon;
 pub mod engine;
 pub mod jaunt;
 pub mod login;
+pub mod net;
 pub mod observe;
 pub mod paths;
 pub mod platform;

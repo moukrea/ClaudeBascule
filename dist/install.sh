@@ -92,7 +92,7 @@ Exec=$bin/bascule-app
 Icon=claude-bascule
 Terminal=false
 Categories=Utility;Development;
-StartupWMClass=bascule-app
+StartupWMClass=claude-bascule
 EOF
   # Earlier development installs used other names.
   rm -f "$data/applications/bascule.desktop" "$data/icons/hicolor/256x256/apps/bascule.png"
@@ -152,8 +152,13 @@ EOF
 
   case ":$PATH:" in *":$bin:"*) ;; *) warn "Add $bin to your PATH to use the 'bascule' command." ;; esac
 
+  # Wait for the service to answer before opening the window.
+  i=0
+  while [ $i -lt 30 ] && ! "$bin/bascule" state >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
+
   if [ -z "${CLAUDE_BASCULE_NO_LAUNCH:-}" ] && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
     pkill -x bascule-app 2>/dev/null || true
+    pkill -x claude-bascule 2>/dev/null || true
     sleep 1
     if command -v systemd-run >/dev/null 2>&1; then
       systemd-run --user --collect --quiet --unit "claude-bascule-app-$$" "$bin/bascule-app" >/dev/null 2>&1 \
@@ -203,6 +208,8 @@ EOF
   uid=$(id -u)
   launchctl bootout "gui/$uid/$ID" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$uid" "$plist"
+  i=0
+  while [ $i -lt 30 ] && ! "$app/Contents/MacOS/bascule" state >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
   [ -n "${CLAUDE_BASCULE_NO_LAUNCH:-}" ] || open "$app"
 fi
 

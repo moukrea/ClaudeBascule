@@ -370,7 +370,7 @@ function renderAccounts(root) {
   const st = S.settings;
   root.append(el("div", { class: "head" },
     el("div", {}, el("h1", { text: tr("tab_accounts") }),
-      el("div", { class: "sub", text: st.auto_switch && st.anticipate ? tr("accounts_sub_on", { n: S.accounts.length, p: st.threshold_percent }) : tr("accounts_sub_off", { n: S.accounts.length }) })),
+      el("div", { class: "sub", text: st.auto_switch && st.anticipate ? trn("accounts_sub_on", S.accounts.length, { p: st.threshold_percent }) : trn("accounts_sub_off", S.accounts.length) })),
     el("div", { class: "head-actions" },
       el("button", { class: "btn flat", type: "button", onclick: openAddAccount }, icon("plus"), tr("add_account")),
       S.accounts.length ? el("button", { class: "btn flat", type: "button", onclick: () => act(() => call("reread"), tr("reread_ok")) }, icon("refresh"), tr("reread")) : null)));
@@ -381,7 +381,8 @@ function renderAccounts(root) {
       el("button", { class: "btn ink", type: "button", onclick: openAddAccount }, icon("plus"), tr("add_account"))));
     return;
   }
-  const cols = S.accounts.map((x) => (x.place === "active" ? "minmax(0, 1.12fr)" : "minmax(0, 1fr)")).join(" ");
+  // One account: a card of normal width rather than one stretched over the window.
+  const cols = S.accounts.length === 1 ? "minmax(0, 560px)" : S.accounts.map((x) => (x.place === "active" ? "minmax(0, 1.12fr)" : "minmax(0, 1fr)")).join(" ");
   const cards = el("div", { class: "cards", style: `--n:${Math.min(4, S.accounts.length)};--cols:${cols}` });
   const rot = rotationOf(st);
   const sessions = (S.sessions || []).length;
@@ -428,13 +429,19 @@ function renderAccounts(root) {
     const action = active ? el("span", { class: "muted", text: trn("active", sessions) })
       : a.place === "resting" ? el("button", { class: "btn ink", type: "button", onclick: () => confirmSwitch(a) }, icon("swap"), tr("switch_here"))
       : el("button", { class: "btn ink", type: "button", onclick: () => startLogin(a) }, icon("key"), tr("sign_in"));
-    const err = a.usage_error && a.place !== "signed_out" ? el("div", { class: "err", text: /429/.test(a.usage_error) ? tr("err429") : a.usage_error }) : null;
+    const err = a.usage_error && a.place !== "signed_out" ? el("div", { class: "err", text: usageError(a.usage_error), "data-tip": a.usage_error }) : null;
     const card = el("article", { class: "card" + (active ? " active" : ""), style: `--hue:${hueOf(a.name)}` }, head, body, err, el("div", { class: "c-foot" }, resetsBtn, action));
     // The card hovered last is on top; the one left behind finishes shrinking underneath it.
     card.addEventListener("mouseenter", () => { card.style.zIndex = String(++cardZ); });
     cards.append(card);
   }
   root.append(cards);
+}
+// A quota read failure in plain words; the raw error stays in the tooltip.
+function usageError(e) {
+  if (/429/.test(e)) return tr("err429");
+  if (/HTTP 40[13]|no token/.test(e)) return tr("err_auth");
+  return tr("err_network");
 }
 function confirmSwitch(a) {
   modal({ title: tr("switch_title", { a: a.label }), body: el("p", { text: tr("switch_body") }), actions: [
@@ -567,9 +574,9 @@ function renderSessions(root) {
   const sendable = entries.filter((e) => ["ready", "needs_you", "failed"].includes(e.state));
   const n = (S.sessions || []).length;
   root.append(el("div", { class: "head" },
-    el("div", {}, el("h1", { text: tr("tab_sessions") }), el("div", { class: "sub", text: entries.length ? tr("sessions_sub_r", { n, r: entries.length }) : tr("sessions_sub", { n }) })),
+    el("div", {}, el("h1", { text: tr("tab_sessions") }), el("div", { class: "sub", text: entries.length ? trn("sessions_sub_r", n, { r: entries.length }) : trn("sessions_sub", n) })),
     sendable.length >= 2 ? el("button", { class: "btn ink", type: "button", onclick: () => act(() => call("resume.send", { sessions: sendable.map((e) => e.session),
-      texts: Object.fromEntries(sendable.map((e) => [e.session, drafts[e.session] ?? S.default_message])) })) }, icon("send"), tr("send_all", { n: sendable.length })) : null));
+      texts: Object.fromEntries(sendable.map((e) => [e.session, drafts[e.session] ?? S.default_message])) })) }, icon("send"), trn("send_all", sendable.length)) : null));
   root.append(el("h2", { class: "sec", text: tr("to_resume") }));
   if (!entries.length) root.append(el("div", { class: "calm" }, el("span", { class: "ic" }, icon("check")), tr("no_resume")));
   else {
@@ -832,15 +839,31 @@ function render(force, pageChanged) {
   lastReady = ready;
 }
 let lastJson = "";
+// Until the service has answered once, the window shows that it is connecting (it may be
+// starting at the same time); only later does a silence mean the service is down.
+const bootAt = Date.now();
+let everOk = false;
+lang = (() => { const l = (navigator.language || "en").slice(0, 2); return I18N[l] ? l : "en"; })();
+function booting() {
+  frame.classList.add("booting");
+  fill(document.getElementById("page"), el("div", { class: "boot" }, el("span", { class: "spinner" }), tr("b_connecting")));
+}
 async function refresh() {
-  try {
-    const st = await call("state");
-    S = st;
-    const j = JSON.stringify({ ...st, at: 0 });
-    if (j !== lastJson) { lastJson = j; render(); }
-  } catch (e) {
-    banner(tr("b_daemon"), true);
+  let st = null;
+  try { st = await call("state"); } catch (e) { st = null; }
+  if (!st || !st.accounts || !st.settings) {
+    if (!everOk && Date.now() - bootAt < 20000) booting();
+    else banner(tr("b_daemon"), true);
+    return;
+  }
+  if (!everOk) { everOk = true; frame.classList.remove("booting"); lastJson = ""; }
+  S = st;
+  const j = JSON.stringify({ ...st, at: 0 });
+  if (j !== lastJson) {
+    lastJson = j;
+    try { render(); } catch (e) { console.error(e); }
   }
 }
+booting();
 refresh();
 setInterval(refresh, 1500);

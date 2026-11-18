@@ -56,16 +56,17 @@ pub fn check(current: &str) -> UpdateState {
 }
 
 fn latest_release() -> Result<(String, Option<String>, Option<String>)> {
-    let resp = ureq::get(&format!(
-        "https://api.github.com/repos/{REPO}/releases/latest"
-    ))
-    .set("Accept", "application/vnd.github+json")
-    .set(
-        "User-Agent",
-        &format!("claude-bascule/{}", env!("CARGO_PKG_VERSION")),
-    )
-    .timeout(std::time::Duration::from_secs(20))
-    .call();
+    let resp = crate::net::agent()
+        .get(&format!(
+            "https://api.github.com/repos/{REPO}/releases/latest"
+        ))
+        .set("Accept", "application/vnd.github+json")
+        .set(
+            "User-Agent",
+            &format!("claude-bascule/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .timeout(std::time::Duration::from_secs(20))
+        .call();
     let v: Value = match resp {
         Ok(r) => r.into_json()?,
         Err(ureq::Error::Status(404, _)) => anyhow::bail!("no release published yet"),
