@@ -429,3 +429,14 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 /* Before the service first answers */
 .frame.booting #tabs, .frame.booting #link, .frame.booting #auto, .frame.booting #upd { visibility: hidden; }
 .boot { height: 100%; min-height: 300px; display: flex; gap: 12px; align-items: center; justify-content: center; color: var(--ink-3); font-size: 14px; }
+
+/* Modals without actions keep their bottom breathing room */
+.modal.no-foot .m-body { padding-bottom: 28px; }
+/* Update dialog */
+.upd-hero { display: flex; align-items: center; gap: 16px; }
+.upd-hero-t { min-width: 0; display: grid; gap: 2px; }
+.upd-v { font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+.upd-hero .muted { font-size: 13.5px; line-height: 1.45; }
+.progress { position: relative; height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.progress.indeterminate span { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 999px; background: var(--accent); animation: indet 1.3s cubic-bezier(.45, 0, .25, 1) infinite; }
+@keyframes indet { from { left: -40%; } to { left: 100%; } }

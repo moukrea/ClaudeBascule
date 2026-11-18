@@ -30,6 +30,39 @@ fn open_url(url: String) -> Result<(), String> {
 #[tauri::command]
 fn apply_update() -> Result<(), String> {
     let (program, args) = bascule_core::update::install_command();
+    // Linux: the window often runs in its own systemd unit, whose processes all stop with it; the
+    // installer closes the window, so it runs in a unit of its own (with the session's display,
+    // to open the new window).
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = std::process::Command::new("systemd-run");
+        cmd.args(["--user", "--collect", "--quiet", "--unit"])
+            .arg(format!("claude-bascule-update-{}", std::process::id()));
+        for k in [
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "XDG_RUNTIME_DIR",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "XDG_CURRENT_DESKTOP",
+            "XDG_SESSION_TYPE",
+            "PATH",
+            "HOME",
+        ] {
+            if let Ok(v) = std::env::var(k) {
+                cmd.arg(format!("--setenv={k}={v}"));
+            }
+        }
+        cmd.arg("--setenv=CLAUDE_BASCULE_RELAUNCH=1")
+            .arg(&program)
+            .args(&args);
+        if platform::detach(&mut cmd)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+    }
     let mut cmd = std::process::Command::new(program);
     cmd.args(args).env("CLAUDE_BASCULE_RELAUNCH", "1");
     platform::detach(&mut cmd)
@@ -59,7 +92,9 @@ fn main() {
     #[cfg(target_os = "linux")]
     {
         gtk::glib::set_prgname(Some("claude-bascule"));
-        gtk::gdk::set_program_class("claude-bascule");
+        // The safe wrapper refuses to run before GDK is initialised (Tauri does that later),
+        // while the C function is meant to be called first.
+        unsafe { gtk::gdk::ffi::gdk_set_program_class(c"claude-bascule".as_ptr()) };
     }
     let paths = Paths::from_env();
     let _ = bascule_core::store::private_dir(&paths.state);

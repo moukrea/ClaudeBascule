@@ -76,3 +76,14 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: The window starts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb
+          cargo build -p bascule-app
+          set +e
+          xvfb-run -a timeout 15 target/debug/bascule-app
+          code=$?
+          set -e
+          # Still running when the timeout stops it (124): it started.
+          if [ "$code" -ne 124 ]; then echo "::error::bascule-app exited with $code instead of running"; exit 1; fi

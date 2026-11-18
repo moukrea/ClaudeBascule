@@ -222,7 +222,7 @@ function segmented({ value, options, onChange }) {
 let modals = [];
 function modal({ title, body, actions = [], wide, onClose }) {
   closePop();
-  const api = {};
+  const api = { closable: true };
   const close = () => { scrim.remove(); modals = modals.filter((m) => m !== api); if (onClose) onClose(); };
   const bodyBox = el("div", { class: "m-body" }, body);
   const foot = el("div", { class: "m-foot" });
@@ -230,14 +230,18 @@ function modal({ title, body, actions = [], wide, onClose }) {
     fill(foot, left ? el("span", { class: "left", text: left }) : null,
       acts.map((a) => el("button", { class: "btn" + (a.primary ? " ink" : "") + (a.danger ? " danger" : ""), type: "button", disabled: !!a.disabled, onclick: () => a.onClick(api) }, a.icon ? icon(a.icon) : null, a.label)));
     foot.hidden = !acts.length && !left;
+    if (box) box.classList.toggle("no-foot", foot.hidden);
   };
+  let box = null;
   setActions(actions);
-  const box = el("div", { class: "modal" + (wide ? " wide" : ""), role: "dialog", "aria-modal": "true" },
-    el("div", { class: "m-head" }, el("h3", { text: title }), el("button", { class: "icon-btn", type: "button", "aria-label": tr("close"), onclick: () => api.close() }, icon("x"))),
+  const xBtn = el("button", { class: "icon-btn", type: "button", "aria-label": tr("close"), onclick: () => api.close() }, icon("x"));
+  box = el("div", { class: "modal" + (wide ? " wide" : "") + (foot.hidden ? " no-foot" : ""), role: "dialog", "aria-modal": "true" },
+    el("div", { class: "m-head" }, el("h3", { text: title }), xBtn),
     bodyBox, foot);
-  const scrim = el("div", { class: "scrim", onmousedown: (e) => { if (e.target === scrim) api.close(); } }, box);
+  const scrim = el("div", { class: "scrim", onmousedown: (e) => { if (e.target === scrim && api.closable) api.close(); } }, box);
   document.getElementById("layer").append(scrim);
-  Object.assign(api, { close, setBody: (b) => fill(bodyBox, b), setActions, box, setTitle: (t) => { box.querySelector(".m-head h3").textContent = t; } });
+  Object.assign(api, { close, setBody: (b) => fill(bodyBox, b), setActions, box, setTitle: (t) => { box.querySelector(".m-head h3").textContent = t; },
+    setClosable: (v) => { api.closable = v; xBtn.hidden = !v; } });
   modals.push(api);
   setTimeout(() => { const f = box.querySelector("input:not([type=checkbox]), textarea, .m-foot .btn.ink"); if (f) f.focus(); }, 30);
   return api;
@@ -277,7 +281,7 @@ document.addEventListener("mousedown", (e) => { hideTip(); if (openPop && !openP
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (openPop) closePop();
-  else if (modals.length) modals[modals.length - 1].close();
+  else if (modals.length && modals[modals.length - 1].closable) modals[modals.length - 1].close();
 });
 
 // ---------- top bar: tabs with a sliding pill ----------
@@ -496,26 +500,52 @@ function notesView(md) {
   for (const raw of String(md || "").split(/\r?\n/)) {
     const line = raw.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/`([^`]+)`/g, "$1").trim();
     if (!line) { list = null; continue; }
-    if (/^#{1,6}\s/.test(line)) { list = null; box.append(el("h5", { text: line.replace(/^#+\s*/, "") })); continue; }
+    if (/README/.test(line)) continue;
+    if (/^#{1,6}\s/.test(line)) {
+      list = null;
+      const h = line.replace(/^#+\s*/, "");
+      const k = { "New": "notes_new", "Fixes": "notes_fixes", "Faster": "notes_faster", "Breaking changes": "notes_breaking", "Other changes": "notes_other" }[h];
+      box.append(el("h5", { text: k ? tr(k) : h }));
+      continue;
+    }
     if (/^[-*]\s/.test(line)) { if (!list) { list = el("ul"); box.append(list); } list.append(el("li", { text: line.slice(2) })); continue; }
     list = null;
     box.append(el("p", { text: line }));
   }
   return box;
 }
+// The update: what is new, then an installing state the window cannot leave (the installer
+// closes and reopens the app); if the app is still here after two minutes, it did not work.
+function updHero(title, sub) {
+  return el("div", { class: "upd-hero" }, el("div", { class: "mark big", "aria-hidden": "true" }, el("span", { class: "glyph" })),
+    el("div", { class: "upd-hero-t" }, el("div", { class: "upd-v", text: title }), el("div", { class: "muted", text: sub })));
+}
 function openUpdate() {
   const up = S.update || {};
-  const body = el("div", { class: "upd" },
-    el("p", { text: tr("update_body", { c: up.current }) }),
-    up.notes ? el("div", { class: "upd-notes" }, el("div", { class: "upd-h", text: tr("update_notes") }), notesView(up.notes)) : null);
-  modal({ title: tr("update_title", { v: up.latest }), body, actions: [
+  const ask = () => [
     { label: tr("update_later"), onClick: (m) => m.close() },
-    { label: tr("update_go"), primary: true, icon: "download", onClick: async (m) => {
-      m.setBody(el("div", { class: "wait" }, el("span", { class: "spinner" }), tr("update_running")));
-      m.setActions([]);
-      try { await invoke("apply_update"); } catch (e) { m.setBody(el("p", { text: String(e) })); m.setActions([{ label: tr("close"), onClick: (x) => x.close() }]); }
-    } },
-  ] });
+    { label: tr("update_go"), primary: true, icon: "download", onClick: install },
+  ];
+  const offer = () => el("div", { class: "upd" },
+    updHero(`Claude Bascule ${up.latest}`, tr("update_body", { c: up.current })),
+    up.notes ? el("div", { class: "upd-notes" }, el("div", { class: "upd-h", text: tr("update_notes") }), notesView(up.notes)) : null);
+  async function install(m) {
+    m.setTitle(tr("update_installing_title"));
+    m.setClosable(false);
+    m.setActions([]);
+    m.setBody(el("div", { class: "upd" },
+      updHero(tr("update_installing", { v: up.latest }), tr("update_restart_note")),
+      el("div", { class: "progress indeterminate", role: "progressbar", "aria-label": tr("update_installing_title") }, el("span"))));
+    const failed = (why) => {
+      m.setTitle(tr("update_avail_title"));
+      m.setClosable(true);
+      m.setBody(el("div", { class: "upd" }, updHero(`Claude Bascule ${up.latest}`, tr("update_failed")), why ? el("p", { class: "muted small", text: why }) : null));
+      m.setActions(ask());
+    };
+    try { await invoke("apply_update"); } catch (e) { failed(String(e)); return; }
+    setTimeout(() => { if (modals.includes(m)) failed(""); }, 120000);
+  }
+  modal({ title: tr("update_avail_title"), body: offer(), actions: ask() });
 }
 function openResets(a) {
   const rs = a.usage.resets;
@@ -856,7 +886,12 @@ async function refresh() {
     else banner(tr("b_daemon"), true);
     return;
   }
-  if (!everOk) { everOk = true; frame.classList.remove("booting"); lastJson = ""; }
+  if (!everOk) {
+    everOk = true; frame.classList.remove("booting"); lastJson = "";
+    // A window opened after a while: look for a new version now rather than at the next hourly check.
+    const up = st.update || {};
+    if (st.settings.check_updates !== false && (!up.checked_at || Date.now() - up.checked_at > 600000)) call("update.check").catch(() => {});
+  }
   S = st;
   const j = JSON.stringify({ ...st, at: 0 });
   if (j !== lastJson) {

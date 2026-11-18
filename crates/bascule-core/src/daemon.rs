@@ -1394,7 +1394,7 @@ impl Daemon {
                 }
             }
         }
-        // Releases: checked at start, then every 6 hours, in the background.
+        // Releases: checked at start, then every hour, in the background.
         {
             let updates = self.updates.clone();
             let settings_file = self.paths.settings_file();
@@ -1406,7 +1406,7 @@ impl Daemon {
                     let st = crate::update::check(env!("CARGO_PKG_VERSION"));
                     *updates.lock().unwrap() = st;
                 }
-                std::thread::sleep(Duration::from_secs(6 * 3600));
+                std::thread::sleep(Duration::from_secs(3600));
             });
         }
         // The app can show the accounts at once, before the first (possibly slow) quota reads.
