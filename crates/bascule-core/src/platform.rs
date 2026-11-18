@@ -68,6 +68,8 @@ pub struct Endpoint {
 
 /// Connect to `socket` (Unix) or to the `{port, key}` in `json_file` (Windows, or when no socket).
 pub fn connect(socket: &Path, json_file: &Path) -> Result<Endpoint> {
+    #[cfg(not(unix))]
+    let _ = socket;
     #[cfg(unix)]
     if socket.exists() {
         let s = std::os::unix::net::UnixStream::connect(socket)

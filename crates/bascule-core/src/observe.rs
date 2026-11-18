@@ -10,7 +10,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 
 const LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -28,12 +27,14 @@ pub fn log(paths: &Paths, kind: &str, data: Value) {
         let _ = std::fs::rename(&file, file.with_extension("jsonl.1"));
     }
     let line = json!({"at": chrono::Local::now().to_rfc3339(), "kind": kind, "data": data});
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(&file)
+    let mut opts = OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
     {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    if let Ok(mut f) = opts.open(&file) {
         let _ = writeln!(f, "{line}");
     }
 }

@@ -230,7 +230,7 @@ fn run() -> Result<()> {
                 }
             }
             // Through the daemon when it runs (it then knows, and resumes blocked sessions).
-            if std::os::unix::net::UnixStream::connect(control::socket_path(&paths)).is_ok() {
+            if control::is_running(&paths) {
                 control::call(&paths, "switch", json!({"to": name}))?;
                 println!("Switched {from} → {name}.");
                 return Ok(());
