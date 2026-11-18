@@ -76,6 +76,7 @@ const I18N = {
     accounts_sub_on_one: "1 account · anticipation at {p} %", accounts_sub_off_one: "1 account · anticipation off", sessions_sub_one: "1 Claude Code session", sessions_sub_r_one: "1 Claude Code session · {r} to resume", send_all_one: "Resume it", err_network: "Can't read the quotas right now (network). Retrying automatically.", err_auth: "This account's sign-in has expired: sign in again.", b_connecting: "Connecting to the Claude Bascule service…",
     update_avail_title: "Update available", update_installing_title: "Updating", update_installing: "Installing Claude Bascule {v}…", update_restart_note: "The window closes and opens again on its own.", update_failed: "The update did not finish. Try again, or run the install command.",
     notes_new: "New", notes_fixes: "Fixes", notes_faster: "Faster", notes_breaking: "Breaking changes", notes_other: "Other changes",
+    change_icon: "Change the icon", icon_title: "Icon for {a}", icon_initial: "Initial",
   },
   fr: {
     tab_accounts: "Comptes", tab_sessions: "Sessions", tab_journal: "Journal",
@@ -151,6 +152,7 @@ const I18N = {
     accounts_sub_on_one: "1 compte · anticipation à {p} %", accounts_sub_off_one: "1 compte · anticipation coupée", sessions_sub_one: "1 session Claude Code", sessions_sub_r_one: "1 session Claude Code · {r} à relancer", send_all_one: "La relancer", err_network: "Lecture des quotas impossible pour le moment (réseau). Nouvel essai automatique.", err_auth: "La connexion de ce compte a expiré : reconnectez-le.", b_connecting: "Connexion au service Claude Bascule…",
     update_avail_title: "Mise à jour disponible", update_installing_title: "Mise à jour en cours", update_installing: "Installation de Claude Bascule {v}…", update_restart_note: "La fenêtre va se fermer puis se rouvrir toute seule.", update_failed: "La mise à jour n'a pas abouti. Réessayez, ou relancez la commande d'installation.",
     notes_new: "Ajouts", notes_fixes: "Corrections", notes_faster: "Plus rapide", notes_breaking: "Changements incompatibles", notes_other: "Autres changements",
+    change_icon: "Changer l'icône", icon_title: "Icône de {a}", icon_initial: "Initiale",
   },
   de: {
     tab_accounts: "Konten", tab_sessions: "Sitzungen", tab_journal: "Protokoll",
@@ -226,6 +228,7 @@ const I18N = {
     accounts_sub_on_one: "1 Konto · Vorgriff bei {p} %", accounts_sub_off_one: "1 Konto · Vorgriff aus", sessions_sub_one: "1 Claude-Code-Sitzung", sessions_sub_r_one: "1 Claude-Code-Sitzung · {r} fortzusetzen", send_all_one: "Fortsetzen", err_network: "Quoten können gerade nicht gelesen werden (Netzwerk). Neuer Versuch folgt automatisch.", err_auth: "Die Anmeldung dieses Kontos ist abgelaufen: bitte erneut anmelden.", b_connecting: "Verbindung zum Claude-Bascule-Dienst…",
     update_avail_title: "Update verfügbar", update_installing_title: "Update läuft", update_installing: "Claude Bascule {v} wird installiert…", update_restart_note: "Das Fenster schließt sich und öffnet sich von selbst wieder.", update_failed: "Das Update wurde nicht abgeschlossen. Erneut versuchen oder den Installationsbefehl ausführen.",
     notes_new: "Neu", notes_fixes: "Korrekturen", notes_faster: "Schneller", notes_breaking: "Inkompatible Änderungen", notes_other: "Weitere Änderungen",
+    change_icon: "Symbol ändern", icon_title: "Symbol für {a}", icon_initial: "Initiale",
   },
   es: {
     tab_accounts: "Cuentas", tab_sessions: "Sesiones", tab_journal: "Registro",
@@ -301,6 +304,7 @@ const I18N = {
     accounts_sub_on_one: "1 cuenta · anticipación al {p} %", accounts_sub_off_one: "1 cuenta · anticipación desactivada", sessions_sub_one: "1 sesión de Claude Code", sessions_sub_r_one: "1 sesión de Claude Code · {r} por reanudar", send_all_one: "Reanudarla", err_network: "No se pueden leer las cuotas ahora (red). Se reintentará automáticamente.", err_auth: "La sesión de esta cuenta ha caducado: vuelve a iniciar sesión.", b_connecting: "Conectando con el servicio de Claude Bascule…",
     update_avail_title: "Actualización disponible", update_installing_title: "Actualizando", update_installing: "Instalando Claude Bascule {v}…", update_restart_note: "La ventana se cerrará y se volverá a abrir sola.", update_failed: "La actualización no terminó. Inténtalo de nuevo o ejecuta el comando de instalación.",
     notes_new: "Añadido", notes_fixes: "Correcciones", notes_faster: "Más rápido", notes_breaking: "Cambios incompatibles", notes_other: "Otros cambios",
+    change_icon: "Cambiar el icono", icon_title: "Icono de {a}", icon_initial: "Inicial",
   },
   it: {
     tab_accounts: "Account", tab_sessions: "Sessioni", tab_journal: "Registro",
@@ -376,6 +380,7 @@ const I18N = {
     accounts_sub_on_one: "1 account · anticipo al {p} %", accounts_sub_off_one: "1 account · anticipo disattivato", sessions_sub_one: "1 sessione Claude Code", sessions_sub_r_one: "1 sessione Claude Code · {r} da riprendere", send_all_one: "Riprendila", err_network: "Impossibile leggere le quote ora (rete). Nuovo tentativo automatico.", err_auth: "L'accesso di questo account è scaduto: accedi di nuovo.", b_connecting: "Connessione al servizio Claude Bascule…",
     update_avail_title: "Aggiornamento disponibile", update_installing_title: "Aggiornamento in corso", update_installing: "Installazione di Claude Bascule {v}…", update_restart_note: "La finestra si chiude e si riapre da sola.", update_failed: "L'aggiornamento non è stato completato. Riprova o esegui il comando di installazione.",
     notes_new: "Aggiunte", notes_fixes: "Correzioni", notes_faster: "Più veloce", notes_breaking: "Modifiche incompatibili", notes_other: "Altre modifiche",
+    change_icon: "Cambia icona", icon_title: "Icona di {a}", icon_initial: "Iniziale",
   },
   pt: {
     tab_accounts: "Contas", tab_sessions: "Sessões", tab_journal: "Registo",
@@ -451,6 +456,7 @@ const I18N = {
     accounts_sub_on_one: "1 conta · antecipação a {p} %", accounts_sub_off_one: "1 conta · antecipação desativada", sessions_sub_one: "1 sessão do Claude Code", sessions_sub_r_one: "1 sessão do Claude Code · {r} a retomar", send_all_one: "Retomá-la", err_network: "Não é possível ler as quotas agora (rede). Nova tentativa automática.", err_auth: "A sessão desta conta expirou: inicie sessão de novo.", b_connecting: "A ligar ao serviço Claude Bascule…",
     update_avail_title: "Atualização disponível", update_installing_title: "A atualizar", update_installing: "A instalar o Claude Bascule {v}…", update_restart_note: "A janela fecha-se e volta a abrir-se sozinha.", update_failed: "A atualização não terminou. Tente de novo ou execute o comando de instalação.",
     notes_new: "Adições", notes_fixes: "Correções", notes_faster: "Mais rápido", notes_breaking: "Alterações incompatíveis", notes_other: "Outras alterações",
+    change_icon: "Mudar o ícone", icon_title: "Ícone de {a}", icon_initial: "Inicial",
   },
 };
 const LANG_NAMES = { en: "English", fr: "Français", de: "Deutsch", es: "Español", it: "Italiano", pt: "Português" };

@@ -23,10 +23,29 @@ const ICON = {
   check: "M20 6 9 17l-5-5", alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
   x: "M18 6 6 18M6 6l12 12", up: "M18 15l-6-6-6 6", down: "M6 9l6 6 6-6", send: "M22 2 11 13M22 2l-7 20-4-9-9-4z", plus: "M12 5v14M5 12h14", minus: "M5 12h14",
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
+  smile: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6", download: "M12 3v12M7 10l5 5 5-5M5 21h14",
   link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
   user: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
 };
+// An account's icon (Lucide shapes), or null when it has none.
+function avatarIcon(key) {
+  const shapes = typeof AVATAR_ICONS !== "undefined" && AVATAR_ICONS[key];
+  if (!shapes) return null;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = shapes;
+  return svg;
+}
+const iconOf = (name) => ((S && S.settings && S.settings.avatar_icons) || {})[name];
+function avatar(a, extra = "") {
+  const key = iconOf(a.name);
+  const svg = key ? avatarIcon(key) : null;
+  const initial = (a.label || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1).toUpperCase() || "?";
+  const style = `--hue:${hueOf(a.name)}`;
+  return svg ? el("div", { class: "avatar ico " + extra, style }, svg) : el("div", { class: "avatar " + extra, style, text: initial });
+}
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -406,6 +425,7 @@ function renderAccounts(root) {
       menu(more, [
         !active && a.place === "resting" ? { icon: "swap", label: tr("switch_here"), onClick: () => confirmSwitch(a) } : null,
         { icon: "refresh", label: tr("reread"), onClick: () => act(() => call("reread"), tr("reread_ok")) },
+        { icon: "smile", label: tr("change_icon"), onClick: () => openIconPicker(a) },
         { icon: "key", label: a.place === "signed_out" ? tr("sign_in") : tr("sign_in_again"), onClick: () => startLogin(a) },
         "sep",
         { icon: "rotate", label: inRot ? tr("from_rot") : tr("to_rot"), onClick: () => {
@@ -417,9 +437,8 @@ function renderAccounts(root) {
       ]);
     });
     const tipSub = a.has_alias || a.label === a.email ? plan(a) : a.email;
-    const initial = (a.label || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1).toUpperCase() || "?";
     const head = el("div", { class: "c-head" },
-      el("div", { class: "avatar", text: initial }),
+      avatar(a),
       el("div", { class: "c-id" }, el("div", { class: "c-name ellipsis", text: a.label, "data-tip": a.label, "data-tip-sub": tipSub || null }), el("div", { class: "c-state" }, badges)),
       more);
     const body = el("div", { class: "c-body" },
@@ -452,6 +471,24 @@ function confirmSwitch(a) {
     { label: tr("cancel"), onClick: (m) => m.close() },
     { label: tr("switch_go"), primary: true, icon: "swap", onClick: (m) => { m.close(); act(() => call("switch", { to: a.name }), tr("switched", { a: a.label })); } },
   ] });
+}
+// Pick an icon for an account (or its initial); saved at once.
+function openIconPicker(a, after) {
+  const cur = iconOf(a.name) || "";
+  const pick = async (key, m) => {
+    const icons = { ...((S.settings && S.settings.avatar_icons) || {}) };
+    if (key) icons[a.name] = key; else delete icons[a.name];
+    m.close();
+    await act(() => call("settings.set", { settings: { avatar_icons: icons } }));
+    if (after) after();
+  };
+  const grid = el("div", { class: "icon-grid", role: "radiogroup" });
+  const m = modal({ title: tr("icon_title", { a: a.label }), body: grid, actions: [] });
+  const initial = (a.label || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1).toUpperCase() || "?";
+  grid.append(el("button", { class: "icon-tile letter" + (!cur ? " sel" : ""), type: "button", role: "radio", "aria-checked": String(!cur), "data-tip": tr("icon_initial"), onclick: () => pick("", m) }, initial));
+  for (const key of Object.keys(AVATAR_ICONS)) {
+    grid.append(el("button", { class: "icon-tile" + (key === cur ? " sel" : ""), type: "button", role: "radio", "aria-checked": String(key === cur), "aria-label": key, onclick: () => pick(key, m) }, avatarIcon(key)));
+  }
 }
 function confirmRemove(a) {
   modal({ title: tr("remove_title", { a: a.label }), body: el("p", { text: tr("remove_body") }), actions: [
@@ -755,6 +792,7 @@ function openSettings() {
         alias.addEventListener("input", () => { if (alias.value.trim()) d.display_names[n] = alias.value; else delete d.display_names[n]; touch(); });
         list.append(el("div", { class: "acct-item" },
           toggle({ checked: included.has(n), onChange: (v) => { if (v) included.add(n); else included.delete(n); touch(); } }),
+          el("button", { class: "av-btn", type: "button", "data-tip": tr("change_icon"), onclick: () => openIconPicker(acct(n) || { name: n, label: n }, paint) }, avatar(acct(n) || { name: n, label: n }, "sm")),
           el("span", { class: "em ellipsis", text: a.email, "data-tip": a.email }), alias,
           el("button", { class: "icon-btn", type: "button", "aria-label": tr("up"), disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; touch(); paint(); } }, icon("up")),
           el("button", { class: "icon-btn", type: "button", "aria-label": tr("down"), disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; touch(); paint(); } }, icon("down")),
@@ -824,6 +862,7 @@ function openSettings() {
     d.rotation = inc.length === S.accounts.length && inc.every((n, i) => n === S.accounts[i].name) ? [] : inc;
     if (!perWindow) d.thresholds = {};
     delete d.language; // set on its own, at once
+    delete d.avatar_icons; // idem
     try { await call("settings.set", { settings: d }); toast(tr("saved")); mm.close(); } catch (e) { toast(String(e), "bad"); }
     refresh();
   }
