@@ -97,6 +97,9 @@ pub struct Daemon {
     read_at: HashMap<String, Instant>,
     /// Usage API answered 429: no read before this instant.
     backoff: HashMap<String, Instant>,
+    /// Network failures in a row per account, and when to try again.
+    failures: HashMap<String, u32>,
+    retry_at: HashMap<String, Instant>,
     /// Status-line windows already applied (`fetchedAt` of the last one).
     live_applied: i64,
     exhausted: ExhaustedMap,
@@ -225,6 +228,8 @@ impl Daemon {
             accounts: BTreeMap::new(),
             read_at: HashMap::new(),
             backoff: HashMap::new(),
+            failures: HashMap::new(),
+            retry_at: HashMap::new(),
             live_applied: 0,
             exhausted: ExhaustedMap::new(),
             last_switch: None,
@@ -334,6 +339,23 @@ impl Daemon {
                 }
             }
         };
+        // A network failure (no connection yet, a proxy, a certificate) is retried soon, with a
+        // growing delay, rather than at the next regular read.
+        match usage_error.as_deref() {
+            Some(e) if usage::retry_after(e).is_none() && e != "signed out" => {
+                let n = self.failures.entry(name.to_string()).or_insert(0);
+                *n += 1;
+                let delay = (30u64 << (*n - 1).min(4)).min(300);
+                self.retry_at.insert(
+                    name.to_string(),
+                    Instant::now() + Duration::from_secs(delay),
+                );
+            }
+            _ => {
+                self.failures.remove(name);
+                self.retry_at.remove(name);
+            }
+        }
         if let Some(wait) = usage_error.as_deref().and_then(usage::retry_after) {
             self.backoff.insert(
                 name.to_string(),
@@ -378,8 +400,14 @@ impl Daemon {
                 .get(&name)
                 .map(|t| Instant::now() < *t)
                 .unwrap_or(false);
+            let retry = self
+                .retry_at
+                .get(&name)
+                .map(|t| Instant::now() >= *t)
+                .unwrap_or(false);
             let due = !held
                 && (force_all
+                    || retry
                     || self
                         .read_at
                         .get(&name)
@@ -1381,6 +1409,8 @@ impl Daemon {
                 std::thread::sleep(Duration::from_secs(6 * 3600));
             });
         }
+        // The app can show the accounts at once, before the first (possibly slow) quota reads.
+        self.publish();
         while !stop() {
             self.reload_settings();
             while let Ok(cmd) = self.rx.try_recv() {

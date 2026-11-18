@@ -16,7 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 toml = "0.8"
-ureq = { version = "2.12", features = ["json"] }
+ureq = { version = "2.12", features = ["json", "proxy-from-env"] }
 
 [profile.release]
 strip = true
