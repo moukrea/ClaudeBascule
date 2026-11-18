@@ -96,8 +96,10 @@ StartupWMClass=bascule-app
 EOF
   # Earlier development installs used other names.
   rm -f "$data/applications/bascule.desktop" "$data/icons/hicolor/256x256/apps/bascule.png"
+  # Launchers notice a new icon when its folders and the desktop entry change.
+  touch "$data/icons/hicolor" "$data/icons/hicolor/scalable/apps" "$data/icons/hicolor/256x256/apps" "$data/applications/claude-bascule.desktop"
   update-desktop-database "$data/applications" >/dev/null 2>&1 || true
-  gtk-update-icon-cache -q "$data/icons/hicolor" >/dev/null 2>&1 || true
+  gtk-update-icon-cache -q -t -f "$data/icons/hicolor" >/dev/null 2>&1 || true
 
   svc_path="$bin${extra_path:+:$extra_path}:/usr/local/bin:/usr/bin:/bin"
   if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
