@@ -2,6 +2,8 @@
 # Build Claude Bascule from this checkout and install it like a release (Linux and macOS).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The window icon is embedded at compile time: rebuild the app crate so a new icon is picked up.
+touch app/src/main.rs
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 case "$(uname -s)" in

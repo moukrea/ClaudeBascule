@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 CORAL = (224, 83, 45, 255)  # #e0532d, the default accent (app.js ACCENTS.coral)
-N = 4.0  # |x|^4 + |y|^4 = 1: the squircle
+N = 3.0  # |x|^3 + |y|^3 = 1: a full squircle
 
 
 def squircle_points(size, margin=0.0, steps=720):
@@ -37,7 +37,7 @@ def glyph_mask():
     return a.crop(a.getbbox())
 
 
-def icon(size, margin_ratio=0.0, glyph_ratio=0.62):
+def icon(size, margin_ratio=0.0, glyph_ratio=0.70):
     ss = 4  # supersampling for smooth edges
     big = size * ss
     canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
@@ -58,7 +58,7 @@ def main():
     icons = ROOT / "app/icons"
     icons.mkdir(parents=True, exist_ok=True)
     # Each size is drawn on its own (supersampled), small ones with a bigger glyph to stay legible.
-    sized = lambda s: icon(s, margin_ratio=0.03, glyph_ratio=0.70 if s <= 32 else 0.62)
+    sized = lambda s: icon(s, margin_ratio=0.03, glyph_ratio=0.76 if s <= 32 else 0.70)
     sized(512).save(icons / "icon.png")
     for s in (32, 128):
         sized(s).save(icons / f"{s}x{s}.png")
@@ -79,7 +79,7 @@ def main():
     glyph = logo[logo.index("<path"):logo.index("/>", logo.index("<path")) + 2].replace("<path", '<path fill="#fff"', 1)
     pts = squircle_points(100, 3, 360)
     d3 = "M" + " L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + " Z"
-    k = 0.62 * 94 / 100
+    k = 0.70 * 94 / 100
     o = (100 - 100 * k) / 2
     (ROOT / "assets/icon.svg").write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#e0532d" d="{d3}"/>'
