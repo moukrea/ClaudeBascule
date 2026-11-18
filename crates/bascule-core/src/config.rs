@@ -59,7 +59,7 @@ pub struct Settings {
     /// Language of the mini-app, notifications and the default resume message: one of
     /// LANGUAGES, or empty for the system language.
     pub language: String,
-    /// Look for a new release on GitHub every 6 hours.
+    /// Look for a new release on GitHub every hour (and when the window opens).
     pub check_updates: bool,
 }
 
