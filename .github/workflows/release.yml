@@ -43,7 +43,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             kind: linux
-          - os: macos-14
+          - os: macos-latest
             kind: macos
           - os: windows-latest
             kind: windows
