@@ -27,7 +27,7 @@ try {
         } else {
             $base = "https://github.com/$repo/releases/latest/download"
         }
-        Write-Host 'Downloading Claude Bascule...'
+        try { Write-Host 'Downloading Claude Bascule...' } catch { }
         Invoke-WebRequest "$base/$asset" -OutFile $zip -UseBasicParsing
         Invoke-WebRequest "$base/SHA256SUMS" -OutFile (Join-Path $tmp 'SHA256SUMS') -UseBasicParsing
         $line = Get-Content (Join-Path $tmp 'SHA256SUMS') | Where-Object { $_ -like "* $asset" } | Select-Object -First 1
@@ -38,7 +38,7 @@ try {
     }
 
     if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
-        Write-Warning 'Claude Code (claude) was not found on this machine: install it first, Claude Bascule switches its account.'
+        try { Write-Warning 'Claude Code (claude) was not found on this machine: install it first, Claude Bascule switches its account.' } catch { }
     }
 
     # Stop the running copies (the window and the service) so their files can be replaced.
@@ -94,7 +94,7 @@ try {
     if (-not $env:CLAUDE_BASCULE_NO_LAUNCH) {
         Start-Process -FilePath $app
     }
-    Write-Host 'Claude Bascule is installed.' -ForegroundColor Green
+    try { Write-Host 'Claude Bascule is installed.' -ForegroundColor Green } catch { }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
