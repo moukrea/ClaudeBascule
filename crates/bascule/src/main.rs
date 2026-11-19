@@ -60,6 +60,12 @@ enum Cmd {
     },
     /// The running daemon's state (JSON).
     State,
+    /// Each account's usage windows as the service last read them: percentages and reset times
+    /// only (no name, address or token), without any network request. --json for programs.
+    Usage {
+        #[arg(long)]
+        json: bool,
+    },
     /// Sessions waiting to be resumed; --send sends them the message (all, or those named).
     Resume {
         #[arg(long)]
@@ -408,6 +414,35 @@ fn run() -> Result<()> {
                 println!("message: {}", st["default_message"].as_str().unwrap_or(""));
             }
         }
+        Cmd::Usage { json } => {
+            let paths = Paths::from_env();
+            let state = control::call(&paths, "state", json!({}))?;
+            let out = usage_view(&state, chrono::Utc::now().timestamp_millis());
+            if json {
+                println!("{}", serde_json::to_string(&out)?);
+            } else {
+                for (i, a) in out["accounts"].as_array().into_iter().flatten().enumerate() {
+                    let wins: Vec<String> = a["windows"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|w| {
+                            format!(
+                                "{} {:.0}%",
+                                w["name"].as_str().unwrap_or("?"),
+                                w["percent"].as_f64().unwrap_or(0.0)
+                            )
+                        })
+                        .collect();
+                    println!(
+                        "{} {:<6} {}",
+                        i + 1,
+                        a["place"].as_str().unwrap_or(""),
+                        wins.join(" · ")
+                    );
+                }
+            }
+        }
         Cmd::State => {
             let paths = Paths::from_env();
             println!(
@@ -438,4 +473,90 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `bascule usage`: numbers only. A window whose reset time has passed counts as 0 % (the service
+/// may not have read the account again since).
+fn usage_view(state: &serde_json::Value, now_ms: i64) -> serde_json::Value {
+    use serde_json::Value;
+    let iso = |ms: i64| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    };
+    let mut latest: Option<i64> = None;
+    let accounts: Vec<Value> = state["accounts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| {
+            let place = if a["place"].as_str() == Some("active") { "active" } else { "rest" };
+            let fetched = a["usage"]["fetched_at"].as_i64();
+            if let Some(f) = fetched {
+                latest = Some(latest.map_or(f, |l| l.max(f)));
+            }
+            let windows: Vec<Value> = a["usage"]["windows"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|w| {
+                    let resets = w["resets_at"].as_str().map(str::to_string);
+                    let passed = resets
+                        .as_deref()
+                        .and_then(|r| chrono::DateTime::parse_from_rfc3339(r).ok())
+                        .is_some_and(|t| t.timestamp_millis() <= now_ms);
+                    json!({
+                        "name": w["name"],
+                        "percent": if passed { 0.0 } else { w["percent"].as_f64().unwrap_or(0.0) },
+                        "resets_at": resets
+                            .as_deref()
+                            .and_then(|r| chrono::DateTime::parse_from_rfc3339(r).ok())
+                            .map(|t| t.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                    })
+                })
+                .collect();
+            json!({"place": place, "fetched_at": fetched.and_then(iso), "windows": windows})
+        })
+        .collect();
+    json!({"fetched_at": latest.and_then(iso), "accounts": accounts})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usage_is_numbers_only() {
+        let state = json!({"accounts": [
+            {"name": "perso", "email": "someone@example.com", "label": "Perso", "place": "active",
+             "token": {"expires_at": 1}, "usage": {"fetched_at": 1795000000000i64, "windows": [
+                {"name": "seven_day", "percent": 71.0, "resets_at": "2026-11-24T07:00:00+00:00", "severity": "warning", "active": true},
+                {"name": "model:Fable", "percent": 100.0, "resets_at": "2026-11-01T00:00:00+00:00"}]}},
+            {"name": "work", "email": "w@example.com", "place": "resting", "usage": null}]});
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-20T00:00:00+00:00")
+            .unwrap()
+            .timestamp_millis();
+        let v = usage_view(&state, now);
+        let text = v.to_string();
+        for secret in [
+            "perso",
+            "someone",
+            "Perso",
+            "example.com",
+            "work",
+            "token",
+            "severity",
+        ] {
+            assert!(!text.contains(secret), "{secret} leaked: {text}");
+        }
+        assert_eq!(v["accounts"][0]["place"], "active");
+        assert_eq!(v["accounts"][0]["windows"][0]["percent"], 71.0);
+        assert_eq!(
+            v["accounts"][0]["windows"][0]["resets_at"],
+            "2026-11-24T07:00:00Z"
+        );
+        assert_eq!(v["accounts"][0]["windows"][1]["percent"], 0.0); // reset already passed
+        assert_eq!(v["accounts"][1]["place"], "rest");
+        assert_eq!(v["accounts"][1]["windows"].as_array().unwrap().len(), 0);
+        assert!(v["fetched_at"].as_str().unwrap().starts_with("2026-11-18T"));
+    }
 }
