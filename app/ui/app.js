@@ -553,8 +553,9 @@ function notesView(md) {
   for (const raw of String(md || "").split(/\r?\n/)) {
     const line = raw.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/`([^`]+)`/g, "$1").trim();
     if (!line) { list = null; continue; }
-    if (/README/.test(line)) continue;
-    if (/^#{1,6}\s/.test(line)) {
+    if (/^Install or update/.test(line)) continue;
+    if (/^#\s/.test(line)) { list = null; box.append(el("div", { class: "notes-ver", text: line.replace(/^#\s*/, "") })); continue; }
+    if (/^#{2,6}\s/.test(line)) {
       list = null;
       const h = line.replace(/^#+\s*/, "");
       const k = { "New": "notes_new", "Fixes": "notes_fixes", "Faster": "notes_faster", "Breaking changes": "notes_breaking", "Other changes": "notes_other" }[h];
@@ -574,6 +575,20 @@ function updHero(title, sub) {
     el("div", { class: "upd-hero-t" }, el("div", { class: "upd-v", text: title }), el("div", { class: "muted", text: sub })));
 }
 function openUpdate() {
+  // What the service knew may be an hour old: look again before offering.
+  const m0 = modal({ title: tr("update_avail_title"), body: el("div", { class: "wait" }, el("span", { class: "spinner" }), tr("update_checking")), actions: [] });
+  call("update.check").then((fresh) => {
+    if (!modals.includes(m0)) return;
+    m0.close();
+    if (fresh) S.update = fresh;
+    if (fresh && !fresh.available && !fresh.error) {
+      modal({ title: tr("update_none_title"), body: el("p", { text: tr("update_none", { v: fresh.current }) }), actions: [{ label: tr("close"), primary: true, onClick: (m) => m.close() }] });
+      return;
+    }
+    showUpdate();
+  }).catch(() => { if (modals.includes(m0)) { m0.close(); showUpdate(); } });
+}
+function showUpdate() {
   const up = S.update || {};
   const ask = () => [
     { label: tr("update_later"), onClick: (m) => m.close() },

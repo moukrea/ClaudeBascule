@@ -474,3 +474,5 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 .chip { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px; background: var(--soft-2); color: var(--ink-2); white-space: nowrap; }
 .chip.live { background: var(--accent-soft); color: var(--accent); }
 .chip.off { background: transparent; color: var(--ink-3); }
+.notes-ver { font-weight: 600; font-size: 14px; color: var(--ink); margin: 14px 0 2px; }
+.notes-ver:first-child { margin-top: 0; }
