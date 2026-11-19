@@ -43,22 +43,34 @@ pub fn check(current: &str) -> UpdateState {
         checked_at: Some(chrono::Utc::now().timestamp_millis()),
         ..Default::default()
     };
-    match latest_release() {
-        Ok((tag, notes, url)) => {
-            st.available = newer(&tag, current);
-            st.latest = Some(tag.trim_start_matches('v').to_string());
-            st.notes = notes;
-            st.url = url;
+    match releases() {
+        Ok(list) => {
+            if let Some(latest) = list.first() {
+                st.available = newer(&latest.tag, current);
+                st.latest = Some(latest.tag.trim_start_matches('v').to_string());
+                st.url = latest.url.clone();
+                st.notes = Some(notes_since(&list, current));
+            } else {
+                st.error = Some("no release published yet".into());
+            }
         }
         Err(e) => st.error = Some(format!("{e:#}")),
     }
     st
 }
 
-fn latest_release() -> Result<(String, Option<String>, Option<String>)> {
+#[derive(Debug, Clone)]
+pub struct Release {
+    pub tag: String,
+    pub body: String,
+    pub url: Option<String>,
+}
+
+/// Published releases (no drafts, no pre-releases), newest version first.
+fn releases() -> Result<Vec<Release>> {
     let resp = crate::net::agent()
         .get(&format!(
-            "https://api.github.com/repos/{REPO}/releases/latest"
+            "https://api.github.com/repos/{REPO}/releases?per_page=30"
         ))
         .set("Accept", "application/vnd.github+json")
         .set(
@@ -69,21 +81,56 @@ fn latest_release() -> Result<(String, Option<String>, Option<String>)> {
         .call();
     let v: Value = match resp {
         Ok(r) => r.into_json()?,
-        Err(ureq::Error::Status(404, _)) => anyhow::bail!("no release published yet"),
         Err(ureq::Error::Status(code, _)) => anyhow::bail!("GitHub answered HTTP {code}"),
         Err(e) => return Err(e).context("GitHub unreachable"),
     };
-    let tag = v
-        .get("tag_name")
-        .and_then(Value::as_str)
-        .context("no tag")?
-        .to_string();
-    let notes = v.get("body").and_then(Value::as_str).map(str::to_string);
-    let url = v
-        .get("html_url")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    Ok((tag, notes, url))
+    let mut list: Vec<Release> = v
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| {
+            !r.get("draft").and_then(Value::as_bool).unwrap_or(false)
+                && !r
+                    .get("prerelease")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        })
+        .filter_map(|r| {
+            Some(Release {
+                tag: r.get("tag_name")?.as_str()?.to_string(),
+                body: r
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                url: r
+                    .get("html_url")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            })
+        })
+        .filter(|r| parse_version(&r.tag).is_some())
+        .collect();
+    list.sort_by_key(|r| std::cmp::Reverse(parse_version(&r.tag)));
+    Ok(list)
+}
+
+/// What changed since `current`: each newer release's notes under `# <version>`, newest first.
+pub fn notes_since(list: &[Release], current: &str) -> String {
+    let mut out = String::new();
+    for r in list.iter().filter(|r| newer(&r.tag, current)).take(15) {
+        out.push_str(&format!("# {}\n", r.tag.trim_start_matches('v')));
+        for line in r
+            .body
+            .lines()
+            .filter(|l| !l.starts_with("Install or update"))
+        {
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// The command that installs the latest release over this one (and restarts everything).
@@ -107,6 +154,27 @@ pub fn install_command() -> (String, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_of_every_missed_version() {
+        let r = |t: &str, b: &str| Release {
+            tag: t.into(),
+            body: b.into(),
+            url: None,
+        };
+        let list = vec![
+            r(
+                "v0.4.0",
+                "## New\n- browser\n- the README screenshots\nInstall or update: see the README",
+            ),
+            r("v0.3.0", "## New\n- waits"),
+            r("v0.2.2", "## Fixes\n- x"),
+        ];
+        let n = notes_since(&list, "0.2.2");
+        assert!(n.starts_with("# 0.4.0\n## New\n- browser\n- the README screenshots\n"));
+        assert!(n.contains("# 0.3.0\n## New\n- waits"));
+        assert!(!n.contains("0.2.2") && !n.contains("Install or update"));
+    }
 
     #[test]
     fn versions() {

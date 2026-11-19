@@ -69,12 +69,48 @@ fn apply_update() -> Result<(), String> {
             return Ok(());
         }
     }
-    let mut cmd = std::process::Command::new(program);
-    cmd.args(args).env("CLAUDE_BASCULE_RELAUNCH", "1");
-    platform::detach(&mut cmd)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    // The installer's output goes to update.log (state folder), for when an update does not finish.
+    let log = Paths::from_env().state.join("update.log");
+    let spawn = |extra_flags: u32| {
+        let mut cmd = std::process::Command::new(&program);
+        cmd.args(&args)
+            .env("CLAUDE_BASCULE_RELAUNCH", "1")
+            .stdin(std::process::Stdio::null());
+        match std::fs::File::create(&log) {
+            Ok(f) => {
+                if let Ok(f2) = f.try_clone() {
+                    cmd.stdout(f2);
+                }
+                cmd.stderr(f);
+            }
+            Err(_) => {
+                cmd.stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+            }
+        }
+        // Windows: PowerShell needs a console (a hidden one); a detached process gets none and
+        // PowerShell then runs nothing. Its own process group, out of the window's job if allowed,
+        // so closing the window does not stop it.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | extra_flags);
+        }
+        #[cfg(not(windows))]
+        let _ = extra_flags;
+        cmd.spawn()
+    };
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    spawn(if cfg!(windows) {
+        CREATE_BREAKAWAY_FROM_JOB
+    } else {
+        0
+    })
+    .or_else(|_| spawn(0))
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 fn service() -> anyhow::Result<()> {
