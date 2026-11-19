@@ -107,6 +107,12 @@ function why(reason, manual) {
   return r;
 }
 const rotationOf = (st) => (st.rotation && st.rotation.length ? st.rotation : S.accounts.map((a) => a.name));
+// Accounts in the order Settings → Accounts shows them: the rotation, then those out of it.
+function orderedAccounts() {
+  const rot = rotationOf(S.settings || {});
+  const pos = (n) => { const i = rot.indexOf(n); return i < 0 ? rot.length + S.accounts.findIndex((a) => a.name === n) : i; };
+  return [...S.accounts].sort((x, y) => pos(x.name) - pos(y.name));
+}
 function thresholdFor(name) {
   const k = name.startsWith("model:") || name === "seven_day_opus" || name === "seven_day_sonnet" ? "model" : name;
   return (S.settings.thresholds || {})[k] ?? S.settings.threshold_percent;
@@ -407,11 +413,11 @@ function renderAccounts(root) {
     return;
   }
   // One account: a card of normal width rather than one stretched over the window.
-  const cols = S.accounts.length === 1 ? "minmax(0, 560px)" : S.accounts.map((x) => (x.place === "active" ? "minmax(0, 1.12fr)" : "minmax(0, 1fr)")).join(" ");
+  const cols = S.accounts.length === 1 ? "minmax(0, 560px)" : orderedAccounts().map((x) => (x.place === "active" ? "minmax(0, 1.12fr)" : "minmax(0, 1fr)")).join(" ");
   const cards = el("div", { class: "cards", style: `--n:${Math.min(4, S.accounts.length)};--cols:${cols}` });
   const rot = rotationOf(st);
   const sessions = (S.sessions || []).length;
-  for (const a of S.accounts) {
+  for (const a of orderedAccounts()) {
     const active = a.place === "active";
     const wins = (a.usage && a.usage.windows) || [];
     const find = (n) => wins.find((w) => w.name === n);
@@ -864,7 +870,7 @@ function openSettings(startTab = "switch", focusKeys = []) {
       }
       out.push(tg("web_follow"));
       const list = el("div", { class: "acct-list" });
-      for (const a of S.accounts) {
+      for (const a of orderedAccounts()) {
         const here = w.account === a.name, has = webHas(a.name);
         list.append(el("div", { class: "acct-item web-item" },
           avatar(a, "sm"),
