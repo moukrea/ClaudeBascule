@@ -84,6 +84,20 @@ to the service, and long-polls `web.next` for commands (`switch`, `login`).
   `claude.ai/oauth/authorize`, tokens in its own storage): it follows the browser's session at its
   next (silent) sign-in only.
 
+## For other programs
+
+`bascule usage --json` prints each account's windows as the service last read them, numbers only:
+
+```json
+{"fetched_at": "2026-11-19T20:55:12Z", "accounts": [{"place": "active", "fetched_at": "2026-11-19T20:55:12Z",
+  "windows": [{"name": "seven_day", "percent": 71.0, "resets_at": "2026-11-24T07:00:00Z"}]}]}
+```
+
+`place` is `active` or `rest`; window names are `five_hour`, `seven_day`, `seven_day_opus`,
+`seven_day_sonnet` and `model:<name>`; a window whose reset time has passed shows 0. No name,
+address, token or fingerprint, and no network request (it asks the local service). When the
+service does not run, it exits with a non-zero code and prints nothing on stdout.
+
 ## Local endpoint
 
 The service answers the app and the CLI on `<state>/bascule.sock` (Unix) or, on Windows, on a
