@@ -24,6 +24,7 @@ const ICON = {
   x: "M18 6 6 18M6 6l12 12", up: "M18 15l-6-6-6 6", down: "M6 9l6 6 6-6", send: "M22 2 11 13M22 2l-7 20-4-9-9-4z", plus: "M12 5v14M5 12h14", minus: "M5 12h14",
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   smile: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
+  pencil: "M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10z",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6", download: "M12 3v12M7 10l5 5 5-5M5 21h14",
@@ -435,6 +436,7 @@ function renderAccounts(root) {
       menu(more, [
         !active && a.place === "resting" ? { icon: "swap", label: tr("switch_here"), onClick: () => confirmSwitch(a) } : null,
         { icon: "refresh", label: tr("reread"), onClick: () => act(() => call("reread"), tr("reread_ok")) },
+        { icon: "pencil", label: tr("rename"), onClick: () => openRename(a) },
         { icon: "smile", label: tr("change_icon"), onClick: () => openIconPicker(a) },
         webCan(a) ? { icon: "globe", label: tr("web_switch"), onClick: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) } : null,
         { icon: "key", label: a.place === "signed_out" ? tr("sign_in") : tr("sign_in_again"), onClick: () => startLogin(a) },
@@ -450,7 +452,7 @@ function renderAccounts(root) {
     const tipSub = a.has_alias || a.label === a.email ? plan(a) : a.email;
     const head = el("div", { class: "c-head" },
       avatar(a),
-      el("div", { class: "c-id" }, el("div", { class: "c-name ellipsis", text: a.label, "data-tip": a.label, "data-tip-sub": tipSub || null }), el("div", { class: "c-state" }, badges)),
+      el("div", { class: "c-id" }, el("div", { class: "c-name ellipsis", text: a.label, "data-tip": a.label, "data-tip-sub": tipSub || null, ondblclick: () => openRename(a) }), el("div", { class: "c-state" }, badges)),
       more);
     const body = el("div", { class: "c-body" },
       meter(tr("w_five_hour"), find("five_hour"), thresholdFor("five_hour"), is20x ? tr("na") : a.usage ? tr("not_running") : tr("not_read")),
@@ -482,6 +484,29 @@ function confirmSwitch(a) {
     { label: tr("cancel"), onClick: (m) => m.close() },
     { label: tr("switch_go"), primary: true, icon: "swap", onClick: (m) => { m.close(); act(() => call("switch", { to: a.name }), tr("switched", { a: a.label })); } },
   ] });
+}
+// A display name for an account (shown instead of its address); empty = the address.
+function openRename(a) {
+  const names = (S.settings && S.settings.display_names) || {};
+  const input = el("input", { type: "text", value: names[a.name] || "", placeholder: a.email, maxlength: 60, spellcheck: "false" });
+  const save = (m) => {
+    const next = { ...names };
+    const v = input.value.trim();
+    if (v) next[a.name] = v; else delete next[a.name];
+    m.close();
+    // Shown at once; the service saves it meanwhile.
+    S.settings.display_names = next;
+    for (const x of S.accounts) if (x.name === a.name) { x.label = v || (S.settings.hide_emails ? x.label : x.email); x.has_alias = !!v; }
+    lastJson = "";
+    render(true);
+    act(() => call("settings.set", { settings: { display_names: next } }));
+  };
+  const m = modal({ title: tr("rename_title"), body: el("div", { class: "form" }, el("p", { class: "muted", text: tr("rename_help", { e: a.email }) }), input), actions: [
+    { label: tr("cancel"), onClick: (mm) => mm.close() },
+    { label: tr("save"), primary: true, onClick: save },
+  ] });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(m); });
+  setTimeout(() => input.select(), 40);
 }
 // Pick an icon for an account (or its initial); saved at once.
 function openIconPicker(a, after) {
