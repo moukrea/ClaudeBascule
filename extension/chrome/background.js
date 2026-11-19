@@ -121,6 +121,10 @@ async function handle(cmd) {
       applying = false;
     }
     rpc("web.result", { ok, to: cmd.to, error }).catch(() => {});
+  } else if (cmd.type === "cic_begin") {
+    await cicBegin(cmd);
+  } else if (cmd.type === "cic_stop") {
+    cic = null;
   } else if (cmd.type === "login") {
     try {
       await capture();
@@ -132,6 +136,52 @@ async function handle(cmd) {
     await chrome.tabs.create({ url: "https://claude.ai/login", active: true });
   }
 }
+
+// ---- Moving Claude in Chrome (another extension: it cannot be driven, only watched) ----
+// claude.ai carries the target account while the user signs Claude in Chrome out and in again;
+// its sign-in page (claude.ai/oauth/authorize for its client) closing or leaving means done.
+const CIC_ID = "fcoeoabgfenejglbffodgkkbkcdhcgfn";
+const CIC_CLIENT = "dae2cad8-15c5-43d2-9046-fcaecc135fa4";
+let cic = null; // { id, authTab }
+
+async function cicBegin(cmd) {
+  try {
+    await capture();
+    applying = true;
+    await clearSession();
+    await setCookies(cmd.cookies || []);
+  } finally {
+    applying = false;
+  }
+  await reloadClaudeTabs();
+  cic = { id: cmd.id, authTab: null };
+  setTimeout(capture, 1500);
+  try {
+    await chrome.tabs.create({ url: `chrome-extension://${CIC_ID}/options.html`, active: true });
+  } catch (e) {
+    // Not installed, or the browser refuses: the window explains what to open.
+  }
+}
+
+function cicFinish(ok, error) {
+  if (!cic) return;
+  const id = cic.id;
+  cic = null;
+  rpc("web.cic_done", { id, ok, error: error || null }).catch(() => {});
+}
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (!cic) return;
+  const url = info.url || tab.url || "";
+  if (url.startsWith("https://claude.ai/oauth/authorize") && url.includes(CIC_CLIENT)) {
+    cic.authTab = tabId;
+  } else if (cic.authTab === tabId && info.url) {
+    setTimeout(() => cicFinish(true), 1500);
+  }
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (cic && cic.authTab === tabId) setTimeout(() => cicFinish(true), 1500);
+});
 
 // A sign-in, sign-out or account change on claude.ai is reported (once things settle).
 chrome.cookies.onChanged.addListener((info) => {

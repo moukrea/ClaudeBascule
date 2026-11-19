@@ -454,3 +454,166 @@ pub fn open_folder(path: &Path) -> Result<()> {
         .map(|_| ())
         .context("open the folder")
 }
+
+/// A Chromium-based browser found on this machine.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Browser {
+    pub id: String,
+    pub name: String,
+    #[serde(skip)]
+    pub exe: PathBuf,
+    /// Its extensions page (`chrome://extensions`, `edge://extensions`...).
+    pub page: String,
+}
+
+/// Chrome, Chromium, Brave, Edge and Vivaldi, when installed (Chrome first).
+pub fn browsers() -> Vec<Browser> {
+    let mut out = Vec::new();
+    let mut add = |id: &str, name: &str, page: &str, exe: Option<PathBuf>| {
+        if let Some(exe) = exe {
+            out.push(Browser {
+                id: id.into(),
+                name: name.into(),
+                exe,
+                page: page.into(),
+            });
+        }
+    };
+    #[cfg(target_os = "linux")]
+    {
+        let find = |names: &[&str]| names.iter().find_map(|n| which(n));
+        add(
+            "chrome",
+            "Google Chrome",
+            "chrome://extensions/",
+            find(&["google-chrome", "google-chrome-stable"]),
+        );
+        add(
+            "chromium",
+            "Chromium",
+            "chrome://extensions/",
+            find(&["chromium", "chromium-browser"]),
+        );
+        add(
+            "brave",
+            "Brave",
+            "brave://extensions/",
+            find(&["brave-browser", "brave"]),
+        );
+        add(
+            "edge",
+            "Microsoft Edge",
+            "edge://extensions/",
+            find(&["microsoft-edge", "microsoft-edge-stable"]),
+        );
+        add(
+            "vivaldi",
+            "Vivaldi",
+            "vivaldi://extensions/",
+            find(&["vivaldi", "vivaldi-stable"]),
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = crate::paths::home_dir();
+        let find = |app: &str, bin: &str| {
+            [PathBuf::from("/Applications"), home.join("Applications")]
+                .into_iter()
+                .map(|d| {
+                    d.join(format!("{app}.app"))
+                        .join("Contents")
+                        .join("MacOS")
+                        .join(bin)
+                })
+                .find(|p| p.is_file())
+        };
+        add(
+            "chrome",
+            "Google Chrome",
+            "chrome://extensions/",
+            find("Google Chrome", "Google Chrome"),
+        );
+        add(
+            "chromium",
+            "Chromium",
+            "chrome://extensions/",
+            find("Chromium", "Chromium"),
+        );
+        add(
+            "brave",
+            "Brave",
+            "brave://extensions/",
+            find("Brave Browser", "Brave Browser"),
+        );
+        add(
+            "edge",
+            "Microsoft Edge",
+            "edge://extensions/",
+            find("Microsoft Edge", "Microsoft Edge"),
+        );
+        add(
+            "vivaldi",
+            "Vivaldi",
+            "vivaldi://extensions/",
+            find("Vivaldi", "Vivaldi"),
+        );
+    }
+    #[cfg(windows)]
+    {
+        let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+        let roots: Vec<PathBuf> = ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(|k| env(k))
+            .collect();
+        let find = |rel: &[&str]| {
+            roots.iter().find_map(|r| {
+                let p = rel.iter().fold(r.clone(), |p, s| p.join(s));
+                p.is_file().then_some(p)
+            })
+        };
+        add(
+            "chrome",
+            "Google Chrome",
+            "chrome://extensions/",
+            find(&["Google", "Chrome", "Application", "chrome.exe"]),
+        );
+        add(
+            "brave",
+            "Brave",
+            "brave://extensions/",
+            find(&["BraveSoftware", "Brave-Browser", "Application", "brave.exe"]),
+        );
+        add(
+            "edge",
+            "Microsoft Edge",
+            "edge://extensions/",
+            find(&["Microsoft", "Edge", "Application", "msedge.exe"]),
+        );
+        add(
+            "vivaldi",
+            "Vivaldi",
+            "vivaldi://extensions/",
+            find(&["Vivaldi", "Application", "vivaldi.exe"]),
+        );
+        add(
+            "chromium",
+            "Chromium",
+            "chrome://extensions/",
+            find(&["Chromium", "Application", "chrome.exe"]),
+        );
+    }
+    out
+}
+
+/// Open a browser's extensions page (the browser starts, or opens a tab if it runs).
+pub fn open_extensions_page(id: &str) -> Result<()> {
+    let b = browsers()
+        .into_iter()
+        .find(|b| b.id == id)
+        .context("browser not found")?;
+    let mut c = Command::new(&b.exe);
+    detach(c.arg(&b.page))
+        .spawn()
+        .map(|_| ())
+        .context("start the browser")
+}

@@ -150,6 +150,22 @@ fn tr(lang: &str, key: &str) -> String {
             "Conta Claude trocada",
         ],
         "open" => ["Open", "Ouvrir", "Öffnen", "Abrir", "Apri", "Abrir"],
+        "cic_title" => [
+            "Claude in Chrome: sign in again",
+            "Claude in Chrome : reconnexion",
+            "Claude in Chrome: neu anmelden",
+            "Claude in Chrome: vuelve a iniciar sesión",
+            "Claude in Chrome: accedi di nuovo",
+            "Claude in Chrome: inicie sessão de novo",
+        ],
+        "cic_body" => [
+            "To follow {a}: Log out, then Sign in in the extension (no code needed).",
+            "Pour passer sur {a} : Log out puis Sign in dans l'extension (sans code).",
+            "Für {a}: in der Erweiterung Log out, dann Sign in (ohne Code).",
+            "Para pasar a {a}: Log out y luego Sign in en la extensión (sin código).",
+            "Per passare a {a}: Log out e poi Sign in nell'estensione (senza codice).",
+            "Para passar para {a}: Log out e depois Sign in na extensão (sem código).",
+        ],
         "resume_one" => [
             "1 session to resume",
             "1 session à relancer",
@@ -1224,17 +1240,58 @@ impl Daemon {
 
     /// After Claude Code switched: claude.ai in the browser follows, when the Connector is there.
     fn web_follow(&mut self, to: &str) {
-        if !self.settings.web_follow {
+        let (web, cic) = (self.settings.web_follow, self.settings.cic_follow);
+        if !web && !cic {
             return;
         }
         let mut hub = self.web.lock().unwrap();
-        if !hub.connected(now_ms()) || hub.account.as_deref() == Some(to) {
+        if !hub.connected(now_ms()) {
             return;
         }
-        let r = hub.push_switch(&self.paths, to);
+        let mut missing = false;
+        if web && hub.account.as_deref() != Some(to) {
+            missing |= hub.push_switch(&self.paths, to).is_err();
+        }
+        if cic
+            && hub.cic_account.as_deref() != Some(to)
+            && hub.cic_flow.as_ref().is_none_or(|f| f.stage != "waiting")
+        {
+            missing |= hub.push_cic(&self.paths, to, web, now_ms()).is_err();
+            if !missing {
+                drop(hub);
+                let lang = self.lang();
+                self.notify(
+                    &tr(&lang, "cic_title"),
+                    &tr(&lang, "cic_body").replace("{a}", &self.label(to)),
+                    true,
+                );
+                launch_app(&self.paths);
+                return;
+            }
+        }
         drop(hub);
-        if r.is_err() {
+        if missing {
             self.event("web.no_session", json!({"account": to}));
+        }
+    }
+
+    /// A Claude in Chrome move waits for the user at most 10 minutes; its outcome shows 30 s.
+    fn cic_tick(&mut self) {
+        let mut hub = self.web.lock().unwrap();
+        let now = now_ms();
+        match hub
+            .cic_flow
+            .as_ref()
+            .map(|f| (f.stage.clone(), f.started_ms))
+        {
+            Some((stage, started)) if stage == "waiting" && now - started > 600_000 => {
+                hub.queue.push_back(json!({"type": "cic_stop"}));
+                hub.end_cic(&self.paths, false, Some("timeout".into()));
+            }
+            Some((stage, started)) if stage != "waiting" && now - started > 630_000 => {
+                hub.cic_flow = None;
+            }
+            _ => {}
         }
     }
 
@@ -1269,6 +1326,7 @@ impl Daemon {
             .map(|a| a.name.as_str())
             .collect();
         json!({"connected": hub.connected(now_ms()), "browser": hub.browser, "version": hub.version,
+            "cic_account": hub.cic_account, "cic_flow": hub.cic_flow,
             "account": hub.account, "unknown_email": hub.unknown_email, "last_error": hub.last_error,
             "pending": !hub.queue.is_empty(), "sessions": sessions,
             "extension_dir": crate::platform::extension_dir().map(|p| p.display().to_string())})
@@ -1454,11 +1512,13 @@ impl Daemon {
                 }
             }
         }
+        self.web.lock().unwrap().cic_account = crate::web::load_cic(&self.paths);
         // The app can show the accounts at once, before the first (possibly slow) quota reads.
         self.publish();
         while !stop() {
             self.reload_settings();
             self.update_tick();
+            self.cic_tick();
             let notes: Vec<(String, Value)> = self.web.lock().unwrap().notes.drain(..).collect();
             for (kind, data) in notes {
                 self.event(&kind, data);
