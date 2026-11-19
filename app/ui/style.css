@@ -476,3 +476,13 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 .chip.off { background: transparent; color: var(--ink-3); }
 .notes-ver { font-weight: 600; font-size: 14px; color: var(--ink); margin: 14px 0 2px; }
 .notes-ver:first-child { margin-top: 0; }
+
+/* Follow toggles on the accounts page; guides */
+.follow { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin: 14px 0 -4px; font-size: 13.5px; }
+.follow .toggle { font-size: 13px; }
+.guide { display: grid; gap: 16px; }
+.guide-status { padding-top: 4px; }
+.ok-line { display: flex; align-items: center; gap: 10px; color: var(--go); font-weight: 600; }
+.ok-line svg { width: 18px; height: 18px; stroke-width: 2.4; }
+.sn.done { background: var(--go-soft); color: var(--go); display: grid; place-items: center; }
+.sn.done svg { width: 14px; height: 14px; stroke-width: 2.6; }

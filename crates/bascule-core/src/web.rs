@@ -122,6 +122,36 @@ pub struct WebHub {
     pub last_error: Option<String>,
     /// Events for the log, taken by the daemon.
     pub notes: VecDeque<(String, Value)>,
+    /// The account the Claude in Chrome extension is signed in with, as last moved by Claude
+    /// Bascule (it cannot be read from the extension), and a move in progress.
+    pub cic_account: Option<String>,
+    pub cic_flow: Option<CicFlow>,
+}
+
+/// Moving Claude in Chrome to `to`: claude.ai carries `to`'s session while the user signs the
+/// extension out and in again; then claude.ai goes back to `restore` (unless it should stay).
+#[derive(Clone, Debug, Serialize)]
+pub struct CicFlow {
+    pub id: i64,
+    pub to: String,
+    pub restore: Option<String>,
+    pub started_ms: i64,
+    /// "waiting" (the user signs out and in), "done", "failed".
+    pub stage: String,
+    pub error: Option<String>,
+}
+
+fn cic_file(paths: &Paths) -> PathBuf {
+    paths.state.join("claude-in-chrome.json")
+}
+
+pub fn load_cic(paths: &Paths) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(cic_file(paths)).ok()?).ok()?;
+    v.get("account").and_then(Value::as_str).map(str::to_string)
+}
+
+pub fn save_cic(paths: &Paths, account: &str) {
+    let _ = atomic_write(&cic_file(paths), &json!({"account": account}));
 }
 
 impl WebHub {
@@ -140,6 +170,62 @@ impl WebHub {
             json!({"type": "switch", "to": name, "email": s.email, "cookies": s.cookies}),
         );
         Ok(())
+    }
+
+    /// Start moving Claude in Chrome to `name`: claude.ai gets `name`'s session, the extension's
+    /// options open, and the Connector watches for its new sign-in.
+    pub fn push_cic(
+        &mut self,
+        paths: &Paths,
+        name: &str,
+        keep_web: bool,
+        now_ms: i64,
+    ) -> Result<i64> {
+        let s = load(paths, name).with_context(|| {
+            format!("no claude.ai session saved for {name}: sign it in in the browser once")
+        })?;
+        let restore = if keep_web {
+            None
+        } else {
+            self.account.clone().filter(|a| a != name)
+        };
+        let id = now_ms;
+        self.cic_flow = Some(CicFlow {
+            id,
+            to: name.to_string(),
+            restore,
+            started_ms: now_ms,
+            stage: "waiting".into(),
+            error: None,
+        });
+        self.queue
+            .retain(|c| c.get("type").and_then(Value::as_str) != Some("switch"));
+        self.queue.push_back(
+            json!({"type": "cic_begin", "id": id, "to": name, "email": s.email, "cookies": s.cookies}),
+        );
+        Ok(id)
+    }
+
+    /// The Claude in Chrome move ended (signed in again, cancelled or failed): put claude.ai back.
+    pub fn end_cic(&mut self, paths: &Paths, ok: bool, error: Option<String>) {
+        let Some(mut flow) = self.cic_flow.take() else {
+            return;
+        };
+        if ok {
+            self.cic_account = Some(flow.to.clone());
+            save_cic(paths, &flow.to);
+        }
+        if let Some(back) = flow.restore.clone() {
+            let _ = self.push_switch(paths, &back);
+        }
+        flow.stage = if ok { "done" } else { "failed" }.into();
+        flow.error = error;
+        self.notes.push_back((
+            if ok { "cic.switched" } else { "cic.failed" }.into(),
+            json!({"account": flow.to, "error": flow.error}),
+        ));
+        // Kept a moment so the window can show the outcome.
+        self.cic_flow = Some(flow);
     }
 
     /// Ask the browser to sign out of claude.ai (keeping the current session) and open the

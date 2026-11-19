@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// What the extension may ask the service.
-const ALLOWED: &[&str] = &["web.hello", "web.capture", "web.result"];
+const ALLOWED: &[&str] = &["web.hello", "web.capture", "web.result", "web.cic_done"];
 
 fn read_msg(r: &mut impl Read) -> Option<Value> {
     let mut len = [0u8; 4];

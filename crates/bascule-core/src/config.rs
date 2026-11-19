@@ -67,8 +67,11 @@ pub struct Settings {
     /// Look for a new release on GitHub every hour (and when the window opens).
     pub check_updates: bool,
     /// When Claude Code switches account, switch claude.ai in the browser too (needs the
-    /// Claude Bascule Connector extension and a saved web session for the account).
+    /// Claude Bascule Connector extension and a saved web session for the account). Off by default.
     pub web_follow: bool,
+    /// When Claude Code switches account, move the Claude in Chrome extension too (guided: it
+    /// must sign out and in again itself). On by default.
+    pub cic_follow: bool,
 }
 
 /// The languages Bascule ships, the same as jaunt and daffin.
@@ -104,7 +107,8 @@ impl Default for Settings {
             hide_emails: false,
             language: String::new(),
             check_updates: true,
-            web_follow: true,
+            web_follow: false,
+            cic_follow: true,
         }
     }
 }

@@ -25,6 +25,18 @@ fn open_url(url: String) -> Result<(), String> {
     platform::open_url(&url).map_err(|e| format!("{e:#}"))
 }
 
+/// Chromium-based browsers installed here (for the extension guide).
+#[tauri::command]
+fn browsers() -> Vec<platform::Browser> {
+    platform::browsers()
+}
+
+/// Open a browser on its extensions page.
+#[tauri::command]
+fn open_extensions_page(id: String) -> Result<(), String> {
+    platform::open_extensions_page(&id).map_err(|e| format!("{e:#}"))
+}
+
 /// Show a folder (the browser extension's) in the file manager.
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
@@ -147,7 +159,9 @@ fn main() {
             call,
             open_url,
             apply_update,
-            open_folder
+            open_folder,
+            browsers,
+            open_extensions_page
         ])
         .run(tauri::generate_context!())
         .expect("Claude Bascule could not start");

@@ -455,6 +455,59 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             hub.push_login(&a.email);
             Ok(json!({"ok": true}))
         }
+        // Move Claude in Chrome to an account (the user signs it out and in; see web::CicFlow).
+        "web.cic_begin" => {
+            let to = p
+                .get("to")
+                .and_then(Value::as_str)
+                .context("web.cic_begin needs 'to'")?;
+            let settings = Settings::load(&ctx.paths.settings_file()).unwrap_or_default();
+            let mut hub = ctx.web.lock().unwrap();
+            if !hub.connected(now_ms()) {
+                bail!("the browser extension is not connected");
+            }
+            let id = hub.push_cic(
+                &ctx.paths,
+                to,
+                settings.web_follow && p.get("keep_web").and_then(Value::as_bool).unwrap_or(false),
+                now_ms(),
+            )?;
+            Ok(json!({"id": id}))
+        }
+        "web.cic_done" => {
+            let ok = p.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let error = p.get("error").and_then(Value::as_str).map(str::to_string);
+            let mut hub = ctx.web.lock().unwrap();
+            let same = hub.cic_flow.as_ref().is_some_and(|f| {
+                f.stage == "waiting"
+                    && p.get("id")
+                        .and_then(Value::as_i64)
+                        .is_none_or(|id| id == f.id)
+            });
+            if same {
+                hub.end_cic(&ctx.paths, ok, error);
+            }
+            Ok(json!({"ok": true}))
+        }
+        "web.cic_cancel" => {
+            let mut hub = ctx.web.lock().unwrap();
+            if hub.cic_flow.as_ref().is_some_and(|f| f.stage == "waiting") {
+                hub.queue.push_back(json!({"type": "cic_stop"}));
+                hub.end_cic(&ctx.paths, false, Some("cancelled".into()));
+            }
+            Ok(json!({"ok": true}))
+        }
+        // The user says which account Claude in Chrome is on (it cannot be read).
+        "web.cic_set" => {
+            let name = p
+                .get("account")
+                .and_then(Value::as_str)
+                .context("web.cic_set needs 'account'")?;
+            let mut hub = ctx.web.lock().unwrap();
+            hub.cic_account = Some(name.to_string());
+            crate::web::save_cic(&ctx.paths, name);
+            Ok(json!({"ok": true}))
+        }
         "web.forget" => {
             let name = p
                 .get("account")
