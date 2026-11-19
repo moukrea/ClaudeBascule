@@ -111,7 +111,7 @@ fn releases() -> Result<Vec<Release>> {
         })
         .filter(|r| parse_version(&r.tag).is_some())
         .collect();
-    list.sort_by(|a, b| parse_version(&b.tag).cmp(&parse_version(&a.tag)));
+    list.sort_by_key(|r| std::cmp::Reverse(parse_version(&r.tag)));
     Ok(list)
 }
 
