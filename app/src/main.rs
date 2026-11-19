@@ -37,6 +37,13 @@ fn open_extensions_page(id: String) -> Result<(), String> {
     platform::open_extensions_page(&id).map_err(|e| format!("{e:#}"))
 }
 
+/// Open Chrome's remote debugging page (to allow Claude Bascule to drive Claude in Chrome).
+#[tauri::command]
+fn open_remote_debugging(id: String) -> Result<(), String> {
+    platform::open_in_browser(&id, "chrome://inspect/#remote-debugging")
+        .map_err(|e| format!("{e:#}"))
+}
+
 /// Show a folder (the browser extension's) in the file manager.
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
@@ -161,7 +168,8 @@ fn main() {
             apply_update,
             open_folder,
             browsers,
-            open_extensions_page
+            open_extensions_page,
+            open_remote_debugging
         ])
         .run(tauri::generate_context!())
         .expect("Claude Bascule could not start");

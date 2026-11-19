@@ -16,3 +16,4 @@ ureq.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-native-certs = "0.8"
 webpki-roots = "0.26"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }

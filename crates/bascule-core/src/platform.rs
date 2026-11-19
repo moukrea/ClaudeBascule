@@ -606,13 +606,33 @@ pub fn browsers() -> Vec<Browser> {
 }
 
 /// Open a browser's extensions page (the browser starts, or opens a tab if it runs).
+/// Open a browser's extensions page (the browser starts, or opens a tab if it runs).
 pub fn open_extensions_page(id: &str) -> Result<()> {
     let b = browsers()
         .into_iter()
         .find(|b| b.id == id)
         .context("browser not found")?;
+    let page = b.page.clone();
+    open_in_browser(id, &page)
+}
+
+/// Open a page (also chrome:// pages) in a given browser, or the first one found.
+pub fn open_in_browser(id: &str, url: &str) -> Result<()> {
+    let all = browsers();
+    let b = all
+        .iter()
+        .find(|b| b.id == id)
+        .or(all.first())
+        .context("no Chromium-based browser found")?;
+    let url = if b.id == "edge" {
+        url.replacen("chrome://", "edge://", 1)
+    } else if b.id == "brave" {
+        url.replacen("chrome://", "brave://", 1)
+    } else {
+        url.to_string()
+    };
     let mut c = Command::new(&b.exe);
-    detach(c.arg(&b.page))
+    detach(c.arg(url))
         .spawn()
         .map(|_| ())
         .context("start the browser")

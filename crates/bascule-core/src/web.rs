@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 /// The cookies that make a claude.ai session (both `claude.ai` and `.claude.ai` hosts).
 pub const SESSION_COOKIES: &[&str] = &[
@@ -126,6 +127,10 @@ pub struct WebHub {
     /// Bascule (it cannot be read from the extension), and a move in progress.
     pub cic_account: Option<String>,
     pub cic_flow: Option<CicFlow>,
+    /// The browser driven through its DevTools protocol (one connection kept open), and its state:
+    /// "off" (remote debugging not allowed), "available", "connecting", "connected", or an error.
+    pub cdp: Arc<Mutex<Option<crate::cdp::Cdp>>>,
+    pub cdp_state: String,
 }
 
 /// Moving Claude in Chrome to `to`: claude.ai carries `to`'s session while the user signs the
@@ -136,9 +141,11 @@ pub struct CicFlow {
     pub to: String,
     pub restore: Option<String>,
     pub started_ms: i64,
-    /// "waiting" (the user signs out and in), "done", "failed".
+    /// "waiting" (the user signs out and in), "working" (Claude Bascule does it), "done", "failed".
     pub stage: String,
     pub error: Option<String>,
+    /// "auto" (Chrome driven by Claude Bascule) or "guided".
+    pub mode: String,
 }
 
 fn cic_file(paths: &Paths) -> PathBuf {
@@ -197,6 +204,7 @@ impl WebHub {
             started_ms: now_ms,
             stage: "waiting".into(),
             error: None,
+            mode: "guided".into(),
         });
         self.queue
             .retain(|c| c.get("type").and_then(Value::as_str) != Some("switch"));
@@ -234,6 +242,233 @@ impl WebHub {
         self.queue
             .push_back(json!({"type": "login", "email": email}));
     }
+}
+
+/// Connect to the browser's DevTools (Chrome asks the user to allow it), keeping the connection.
+pub fn cdp_connect(web: &Arc<Mutex<WebHub>>) -> Result<()> {
+    let handle = web.lock().unwrap().cdp.clone();
+    let mut cdp = handle.lock().unwrap();
+    if cdp.as_mut().is_some_and(|c| c.alive()) {
+        web.lock().unwrap().cdp_state = "connected".into();
+        return Ok(());
+    }
+    *cdp = None;
+    web.lock().unwrap().cdp_state = "connecting".into();
+    match crate::cdp::Cdp::connect() {
+        Ok(c) => {
+            *cdp = Some(c);
+            web.lock().unwrap().cdp_state = "connected".into();
+            Ok(())
+        }
+        Err(e) => {
+            web.lock().unwrap().cdp_state = if crate::cdp::endpoint().is_some() {
+                format!("{e:#}")
+            } else {
+                "off".into()
+            };
+            Err(e)
+        }
+    }
+}
+
+/// Save the browser's current claude.ai session for its account, read through Chrome's DevTools
+/// (the same as a capture by the extension). Returns the account, when it is one of the list.
+pub fn cdp_capture(
+    cdp: &mut crate::cdp::Cdp,
+    paths: &Paths,
+    now_ms: i64,
+) -> Result<Option<String>> {
+    let cookies: Vec<Value> = cdp
+        .session_cookies()?
+        .iter()
+        .map(crate::cdp::to_extension)
+        .collect();
+    if !cookies.iter().any(|c| {
+        matches!(
+            c["name"].as_str(),
+            Some("sessionKey") | Some("sessionKeyV3")
+        )
+    }) {
+        return Ok(None);
+    }
+    let list = crate::config::AccountList::load(&paths.accounts_file())?;
+    let Some(name) = account_for(paths, &list, None, &cookies) else {
+        return Ok(None);
+    };
+    let email = list
+        .by_name(&name)
+        .map(|a| a.email.clone())
+        .unwrap_or_default();
+    save(
+        paths,
+        &name,
+        &WebSession {
+            email,
+            cookies,
+            saved_at: now_ms,
+        },
+    )?;
+    Ok(Some(name))
+}
+
+/// claude.ai to `name`'s saved session through Chrome's DevTools (when the extension is absent).
+pub fn cdp_switch(web: &Arc<Mutex<WebHub>>, paths: &Paths, name: &str) -> Result<()> {
+    let session = load(paths, name).with_context(|| {
+        format!("no claude.ai session saved for {name}: sign it in in the browser once")
+    })?;
+    let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());
+    std::thread::spawn(move || {
+        let r = (|| -> Result<()> {
+            cdp_connect(&web)?;
+            let handle = web.lock().unwrap().cdp.clone();
+            let mut guard = handle.lock().unwrap();
+            let cdp = guard.as_mut().context("not connected to Chrome")?;
+            let now = crate::observe::now_ms();
+            let _ = cdp_capture(cdp, &paths, now);
+            let target: Vec<Value> = session
+                .cookies
+                .iter()
+                .map(crate::cdp::from_extension)
+                .collect();
+            cdp.set_session(&target)?;
+            cdp.reload_claude_tabs()?;
+            Ok(())
+        })();
+        let mut hub = web.lock().unwrap();
+        match r {
+            Ok(()) => {
+                hub.account = Some(name.clone());
+                hub.last_error = None;
+                hub.notes
+                    .push_back(("web.switched".into(), json!({"account": name})));
+            }
+            Err(e) => {
+                let error = format!("{e:#}");
+                hub.last_error = Some(error.clone());
+                hub.notes.push_back((
+                    "web.switch_failed".into(),
+                    json!({"account": name, "error": error}),
+                ));
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Sign an account in to claude.ai in the browser through Chrome's DevTools: the current session
+/// is kept, claude.ai signs out and opens its sign-in page; the new session is saved once the user
+/// has signed in (within 10 minutes).
+pub fn cdp_login(web: &Arc<Mutex<WebHub>>, paths: &Paths) {
+    let (web, paths) = (web.clone(), paths.clone());
+    std::thread::spawn(move || {
+        let r = (|| -> Result<Option<String>> {
+            cdp_connect(&web)?;
+            let handle = web.lock().unwrap().cdp.clone();
+            let mut guard = handle.lock().unwrap();
+            let cdp = guard.as_mut().context("not connected to Chrome")?;
+            let _ = cdp_capture(cdp, &paths, crate::observe::now_ms());
+            cdp.set_session(&[])?;
+            cdp.open_login()?;
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(600);
+            while std::time::Instant::now() < end {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let signed = cdp.session_cookies()?.iter().any(|c| {
+                    matches!(
+                        c["name"].as_str(),
+                        Some("sessionKey") | Some("sessionKeyV3")
+                    )
+                });
+                if signed {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    return cdp_capture(cdp, &paths, crate::observe::now_ms());
+                }
+            }
+            Ok(None)
+        })();
+        let mut hub = web.lock().unwrap();
+        if let Ok(Some(name)) = &r {
+            hub.account = Some(name.clone());
+            hub.notes
+                .push_back(("web.account".into(), json!({"account": name})));
+        }
+    });
+}
+
+/// Move Claude in Chrome to `name`: by driving Chrome when its remote debugging is allowed (no
+/// action from the user), else guided (the user signs it out and in). claude.ai goes back to its
+/// account afterwards unless `keep_web`.
+pub fn start_cic(
+    web: &Arc<Mutex<WebHub>>,
+    paths: &Paths,
+    name: &str,
+    keep_web: bool,
+    now_ms: i64,
+) -> Result<String> {
+    if crate::cdp::endpoint().is_none() {
+        web.lock()
+            .unwrap()
+            .push_cic(paths, name, keep_web, now_ms)?;
+        return Ok("guided".into());
+    }
+    {
+        let mut hub = web.lock().unwrap();
+        if hub
+            .cic_flow
+            .as_ref()
+            .is_some_and(|f| f.stage == "waiting" || f.stage == "working")
+        {
+            anyhow::bail!("Claude in Chrome is already being moved");
+        }
+        hub.cic_flow = Some(CicFlow {
+            id: now_ms,
+            to: name.to_string(),
+            restore: None,
+            started_ms: now_ms,
+            stage: "working".into(),
+            error: None,
+            mode: "auto".into(),
+        });
+    }
+    let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());
+    std::thread::spawn(move || {
+        let r = (|| -> Result<()> {
+            cdp_connect(&web)?;
+            let handle = web.lock().unwrap().cdp.clone();
+            let mut guard = handle.lock().unwrap();
+            let cdp = guard.as_mut().context("not connected to Chrome")?;
+            // The browser's current session is kept for its account first.
+            if let Ok(Some(current)) = cdp_capture(cdp, &paths, now_ms) {
+                web.lock().unwrap().account = Some(current);
+            }
+            let session = load(&paths, &name).with_context(|| {
+                format!("no claude.ai session saved for {name}: sign it in in the browser once")
+            })?;
+            let before = cdp.session_cookies()?;
+            let target: Vec<Value> = session
+                .cookies
+                .iter()
+                .map(crate::cdp::from_extension)
+                .collect();
+            cdp.set_session(&target)?;
+            let moved = cdp.resign_claude_in_chrome(&session.email);
+            if !keep_web || moved.is_err() {
+                let _ = cdp.set_session(&before);
+            }
+            moved
+        })();
+        let mut hub = web.lock().unwrap();
+        if r.is_err() {
+            // A connection that failed midway is dropped; the next move connects again.
+            if let Ok(mut c) = hub.cdp.clone().try_lock() {
+                if c.as_mut().is_some_and(|c| !c.alive()) {
+                    *c = None;
+                    hub.cdp_state = "available".into();
+                }
+            }
+        }
+        hub.end_cic(&paths, r.is_ok(), r.err().map(|e| format!("{e:#}")));
+    });
+    Ok("auto".into())
 }
 
 #[cfg(test)]

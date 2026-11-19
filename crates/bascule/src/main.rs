@@ -60,6 +60,9 @@ enum Cmd {
     },
     /// The running daemon's state (JSON).
     State,
+    /// Keep the connection to Chrome's DevTools open (started by the service when needed).
+    #[command(hide = true)]
+    CdpKeeper,
     /// Each account's usage windows as the service last read them: percentages and reset times
     /// only (no name, address or token), without any network request. --json for programs.
     Usage {
@@ -442,6 +445,9 @@ fn run() -> Result<()> {
                     );
                 }
             }
+        }
+        Cmd::CdpKeeper => {
+            bascule_core::cdp::run_keeper(&Paths::from_env())?;
         }
         Cmd::State => {
             let paths = Paths::from_env();

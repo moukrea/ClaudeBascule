@@ -354,10 +354,11 @@ function renderBar() {
   const w = S.web || {};
   const webEl = document.getElementById("web");
   const cicLabel = w.cic_account ? lab(w.cic_account) : tr("unknown");
-  fill(webEl, el("span", { class: "lamp" + (w.connected ? "" : " warn") }), el("span", { class: "lt", text: w.connected ? tr("web_link") : tr("web_link_off") }));
-  webEl.dataset.tip = w.connected ? tr("web_link_tip", { w: w.account ? lab(w.account) : tr("web_signed_out_short"), c: cicLabel }) : tr("web_link_off_tip");
+  const webUp = w.connected || w.cdp === "connected";
+  fill(webEl, el("span", { class: "lamp" + (webUp ? "" : " warn") }), el("span", { class: "lt", text: webUp ? tr("web_link") : tr("web_link_off") }));
+  webEl.dataset.tip = webUp ? tr("web_link_tip", { w: w.account ? lab(w.account) : tr("web_signed_out_short"), c: cicLabel }) : tr("web_link_off_tip");
   webEl.classList.add("clickable");
-  webEl.onclick = () => (w.connected ? openSettings("browser") : openBrowserGuide());
+  webEl.onclick = () => (webUp ? openSettings("browser") : openBrowserGuide());
   const up = S.update || {};
   const updEl = document.getElementById("upd");
   updEl.hidden = !up.available;
@@ -415,7 +416,7 @@ function renderAccounts(root) {
     el("div", { class: "head-actions" },
       el("button", { class: "btn flat", type: "button", onclick: openAddAccount }, icon("plus"), tr("add_account")),
       S.accounts.length ? el("button", { class: "btn flat", type: "button", onclick: () => act(() => call("reread"), tr("reread_ok")) }, icon("refresh"), tr("reread")) : null)));
-  if (S.web && S.web.connected && S.accounts.length) {
+  if (webOn() && S.accounts.length) {
     const followTg = (key, label, tip) => {
       const t = toggle({ checked: !!S.settings[key], label, onChange: (v) => { S.settings[key] = v; act(() => call("settings.set", { settings: { [key]: v } })); } });
       t.dataset.tip = tip;
@@ -446,8 +447,8 @@ function renderAccounts(root) {
     if (a.exhausted && a.exhausted.until_ms > Date.now()) badges.push(el("span", { class: "badge warn", text: tr("until", { t: fmtTime(a.exhausted.until_ms) }) }));
     if (!rot.includes(a.name)) badges.push(el("span", { text: tr("out_rot") }));
     const web = S.web || {};
-    if (web.connected && web.account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("web_here_tip") }, icon("globe"), "claude.ai"));
-    if (web.connected && web.cic_account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("cic_here_tip") }, icon("puzzle"), "Claude in Chrome"));
+    if (webOn() && web.account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("web_here_tip") }, icon("globe"), "claude.ai"));
+    if (webOn() && web.cic_account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("cic_here_tip") }, icon("puzzle"), "Claude in Chrome"));
     const more = el("button", { class: "icon-btn", type: "button", "aria-label": "Menu" }, icon("more"));
     more.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -552,8 +553,10 @@ function openIconPicker(a, after) {
 }
 // claude.ai in the browser (the Connector extension)
 const webHas = (name) => ((S.web && S.web.sessions) || []).includes(name);
-const webCan = (a) => !!(S.web && S.web.connected && webHas(a.name) && S.web.account !== a.name);
-const cicCan = (a) => !!(S.web && S.web.connected && webHas(a.name) && S.web.cic_account !== a.name && !(S.web.cic_flow && S.web.cic_flow.stage === "waiting"));
+// The browser is reachable through the extension or through Chrome control (remote debugging).
+const webOn = () => !!(S.web && (S.web.connected || S.web.cdp === "connected" || S.web.cdp === "available"));
+const webCan = (a) => !!(webOn() && webHas(a.name) && S.web.account !== a.name);
+const cicCan = (a) => !!(webOn() && webHas(a.name) && S.web.cic_account !== a.name && !(S.web.cic_flow && (S.web.cic_flow.stage === "waiting" || S.web.cic_flow.stage === "working")));
 const OS_TIP = { linux: "guide_tip_linux", macos: "guide_tip_macos", windows: "guide_tip_windows" };
 
 // Install guide for the browser extension: opens the browser's extensions page, says what to do on
@@ -582,6 +585,7 @@ async function openBrowserGuide() {
           el("button", { class: "btn", type: "button", onclick: (e) => copy(path, e.currentTarget) }, icon("check"), tr("guide_copy")),
           el("button", { class: "btn flat", type: "button", onclick: () => invoke("open_folder", { path }).catch((e) => toast(String(e), "bad")) }, icon("folder"), tr("web_open_folder"))) : el("div", { class: "muted", text: tr("web_no_folder") }),
         el("div", { class: "muted small", text: tr(OS_TIP[S.platform] || "guide_tip_linux") })))),
+    el("p", { class: "muted small" }, tr("guide_alt"), " ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); if (guideModal) guideModal.close(); openSettings("browser", ["cic_follow"]); } }, tr("cdp_title"))),
     guideStatus);
   guideModal = modal({ title: tr("guide_title"), body, wide: true, actions: [{ label: tr("close"), onClick: (m) => m.close() }], onClose: () => { guideModal = null; guideStatus = null; } });
   paintGuideStatus();
@@ -601,9 +605,10 @@ function startCic(a) {
   act(() => call("web.cic_begin", { to: a.name }));
 }
 function cicView(f) {
-  const w = S.web || {};
   if (f.stage === "done") return el("div", { class: "ok-line" }, icon("check"), tr("cic_ok", { a: lab(f.to) }));
   if (f.stage === "failed") return el("p", { text: tr("cic_fail", { e: f.error || "?" }) });
+  if (f.mode === "auto") return el("div", { class: "upd" }, el("div", { class: "wait" }, el("span", { class: "spinner" }), tr("cic_auto", { a: lab(f.to) })),
+    el("div", { class: "progress indeterminate" }, el("span")), el("p", { class: "muted small", text: tr("cic_auto_note") }));
   return el("div", { class: "steps web-steps" },
     el("div", { class: "step" }, el("span", { class: "sn done" }, icon("check")), el("div", { class: "st", text: tr("cic_s1", { a: lab(f.to) }) })),
     el("div", { class: "step" }, el("span", { class: "sn", text: "1" }), el("div", { class: "st", text: tr("cic_s2") })),
@@ -614,7 +619,7 @@ function cicView(f) {
 function syncCic() {
   const f = S.web && S.web.cic_flow;
   if (!f) { if (cicModal) { cicModal.close(); cicModal = null; } return; }
-  if (!cicModal && f.stage === "waiting" && cicShown !== f.id) {
+  if (!cicModal && (f.stage === "waiting" || f.stage === "working") && cicShown !== f.id) {
     cicShown = f.id;
     cicModal = modal({ title: tr("cic_title", { a: lab(f.to) }), body: cicView(f), actions: [], onClose: () => { cicModal = null; } });
     const wd = win(); wd.unminimize().catch(() => {}); wd.show().catch(() => {}); wd.setFocus().catch(() => {});
@@ -623,7 +628,11 @@ function syncCic() {
   cicModal.setBody(cicView(f));
   cicModal.setActions(f.stage === "waiting"
     ? [{ label: tr("cancel"), onClick: () => act(() => call("web.cic_cancel")) }, { label: tr("cic_done_btn"), primary: true, onClick: () => act(() => call("web.cic_done", { id: f.id, ok: true })) }]
+    : f.stage === "working" ? [{ label: tr("close"), onClick: (m) => m.close() }]
+    : f.stage === "failed" ? [{ label: tr("close"), onClick: (m) => m.close() }, { label: tr("cic_retry"), primary: true, onClick: (m) => { m.close(); act(() => call("web.cic_begin", { to: f.to })); } }]
     : [{ label: tr("close"), primary: true, onClick: (m) => m.close() }]);
+  // A move Claude Bascule did on its own closes by itself once done.
+  if (f.stage === "done" && f.mode === "auto" && !cicModal._closing) { cicModal._closing = true; const m = cicModal; setTimeout(() => m.close(), 2500); }
 }
 function browserName(ua) {
   ua = ua || "";
@@ -983,6 +992,15 @@ function openSettings(startTab = "switch", focusKeys = []) {
         out.push(el("div", {}, el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); openBrowserGuide(); } }, icon("globe"), tr("guide_title"))));
       }
       out.push(tg("web_follow"), tg("cic_follow"));
+      const cs = w.cdp || "off";
+      const csText = cs === "off" ? tr("cdp_off") : cs === "available" ? tr("cdp_available") : cs === "connecting" ? tr("cdp_connecting") : cs === "connected" ? tr("cdp_connected") : tr("cdp_error", { e: cs });
+      out.push(el("div", { class: "about cdp" },
+        el("div", { class: "web-ico" + (cs === "connected" ? " on" : "") }, icon("puzzle")),
+        el("div", {}, el("div", { class: "about-name", text: tr("cdp_title") }), el("div", { class: "about-st" + (cs === "connected" ? " hot" : ""), text: csText }),
+          el("div", { class: "muted small", text: tr("cdp_help") })),
+        el("div", { class: "about-act" },
+          cs === "off" ? el("button", { class: "btn ink", type: "button", onclick: async () => { const b = (await invoke("browsers").catch(() => []))[0]; invoke("open_remote_debugging", { id: b ? b.id : "chrome" }).catch((e) => toast(String(e), "bad")); } }, icon("globe"), tr("cdp_enable"))
+            : cs !== "connected" ? el("button", { class: "btn ink", type: "button", disabled: cs === "connecting", onclick: () => act(() => call("cdp.connect")) }, icon("link"), tr("cdp_connect")) : null)));
       out.push(row("cic_account", select({ value: w.cic_account || "", options: [{ value: "", label: tr("unknown") }, ...S.accounts.map((a) => ({ value: a.name, label: a.label }))],
         onChange: (v) => { if (v) act(() => call("web.cic_set", { account: v })); } })));
       const list = el("div", { class: "acct-list" });
@@ -993,7 +1011,7 @@ function openSettings(startTab = "switch", focusKeys = []) {
           el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email }),
           el("span", { class: "chip" + (here ? " live" : has ? "" : " off"), text: here ? tr("web_here") : has ? tr("web_saved") : tr("web_none") }),
           webCan(a) ? el("button", { class: "btn", type: "button", onclick: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) }, icon("swap"), tr("web_switch"))
-            : el("button", { class: "btn" + (has ? "" : " ink"), type: "button", disabled: !w.connected || here, onclick: () => act(() => call("web.login", { account: a.name }), tr("web_login_sent")) }, icon("key"), tr("web_login"))));
+            : el("button", { class: "btn" + (has ? "" : " ink"), type: "button", disabled: !webOn() || here, onclick: () => act(() => call("web.login", { account: a.name }), tr("web_login_sent")) }, icon("key"), tr("web_login"))));
       }
       out.push(row("web_accounts", list, { stack: true }));
       out.push(el("p", { class: "muted small", text: tr("web_cic_note") }));

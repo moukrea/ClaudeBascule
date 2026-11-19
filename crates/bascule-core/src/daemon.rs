@@ -1245,31 +1245,35 @@ impl Daemon {
             return;
         }
         let mut hub = self.web.lock().unwrap();
-        if !hub.connected(now_ms()) {
+        let extension = hub.connected(now_ms());
+        if !extension && crate::cdp::endpoint().is_none() {
             return;
         }
         let mut missing = false;
-        if web && hub.account.as_deref() != Some(to) {
+        if web && extension && hub.account.as_deref() != Some(to) {
             missing |= hub.push_switch(&self.paths, to).is_err();
         }
-        if cic
-            && hub.cic_account.as_deref() != Some(to)
-            && hub.cic_flow.as_ref().is_none_or(|f| f.stage != "waiting")
-        {
-            missing |= hub.push_cic(&self.paths, to, web, now_ms()).is_err();
-            if !missing {
-                drop(hub);
-                let lang = self.lang();
-                self.notify(
-                    &tr(&lang, "cic_title"),
-                    &tr(&lang, "cic_body").replace("{a}", &self.label(to)),
-                    true,
-                );
-                launch_app(&self.paths);
-                return;
+        let busy = hub
+            .cic_flow
+            .as_ref()
+            .is_some_and(|f| f.stage == "waiting" || f.stage == "working");
+        let move_cic = cic && hub.cic_account.as_deref() != Some(to) && !busy;
+        drop(hub);
+        if move_cic {
+            match crate::web::start_cic(&self.web, &self.paths, to, web, now_ms()) {
+                Ok(mode) if mode == "guided" => {
+                    let lang = self.lang();
+                    self.notify(
+                        &tr(&lang, "cic_title"),
+                        &tr(&lang, "cic_body").replace("{a}", &self.label(to)),
+                        true,
+                    );
+                    launch_app(&self.paths);
+                }
+                Ok(_) => {}
+                Err(_) => missing = true,
             }
         }
-        drop(hub);
         if missing {
             self.event("web.no_session", json!({"account": to}));
         }
@@ -1284,7 +1288,9 @@ impl Daemon {
             .as_ref()
             .map(|f| (f.stage.clone(), f.started_ms))
         {
-            Some((stage, started)) if stage == "waiting" && now - started > 600_000 => {
+            Some((stage, started))
+                if (stage == "waiting" || stage == "working") && now - started > 600_000 =>
+            {
                 hub.queue.push_back(json!({"type": "cic_stop"}));
                 hub.end_cic(&self.paths, false, Some("timeout".into()));
             }
@@ -1326,7 +1332,7 @@ impl Daemon {
             .map(|a| a.name.as_str())
             .collect();
         json!({"connected": hub.connected(now_ms()), "browser": hub.browser, "version": hub.version,
-            "cic_account": hub.cic_account, "cic_flow": hub.cic_flow,
+            "cic_account": hub.cic_account, "cic_flow": hub.cic_flow, "cdp": cdp_state(&hub),
             "account": hub.account, "unknown_email": hub.unknown_email, "last_error": hub.last_error,
             "pending": !hub.queue.is_empty(), "sessions": sessions,
             "extension_dir": crate::platform::extension_dir().map(|p| p.display().to_string())})
@@ -1606,4 +1612,14 @@ pub fn run_service(
     )?;
     let mut daemon = daemon;
     daemon.run(&|| false)
+}
+
+/// The browser's remote debugging as the app shows it.
+fn cdp_state(hub: &crate::web::WebHub) -> String {
+    match hub.cdp_state.as_str() {
+        "connected" | "connecting" => hub.cdp_state.clone(),
+        _ if crate::cdp::endpoint().is_none() => "off".into(),
+        "" | "off" => "available".into(),
+        other => other.into(),
+    }
 }

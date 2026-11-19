@@ -435,10 +435,14 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 .and_then(Value::as_str)
                 .context("web.switch needs 'to'")?;
             let mut hub = ctx.web.lock().unwrap();
-            if !hub.connected(now_ms()) {
-                bail!("the browser extension is not connected");
+            if hub.connected(now_ms()) {
+                hub.push_switch(&ctx.paths, to)?;
+            } else if crate::cdp::endpoint().is_some() {
+                drop(hub);
+                crate::web::cdp_switch(&ctx.web, &ctx.paths, to)?;
+            } else {
+                bail!("the browser is not connected");
             }
-            hub.push_switch(&ctx.paths, to)?;
             Ok(json!({"ok": true}))
         }
         "web.login" => {
@@ -449,10 +453,14 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             let list = AccountList::load(&ctx.paths.accounts_file())?;
             let a = list.by_name(name).context("unknown account")?;
             let mut hub = ctx.web.lock().unwrap();
-            if !hub.connected(now_ms()) {
-                bail!("the browser extension is not connected");
+            if hub.connected(now_ms()) {
+                hub.push_login(&a.email);
+            } else if crate::cdp::endpoint().is_some() {
+                drop(hub);
+                crate::web::cdp_login(&ctx.web, &ctx.paths);
+            } else {
+                bail!("the browser is not connected");
             }
-            hub.push_login(&a.email);
             Ok(json!({"ok": true}))
         }
         // Move Claude in Chrome to an account (the user signs it out and in; see web::CicFlow).
@@ -461,18 +469,28 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 .get("to")
                 .and_then(Value::as_str)
                 .context("web.cic_begin needs 'to'")?;
-            let settings = Settings::load(&ctx.paths.settings_file()).unwrap_or_default();
-            let mut hub = ctx.web.lock().unwrap();
-            if !hub.connected(now_ms()) {
+            if !ctx.web.lock().unwrap().connected(now_ms()) && crate::cdp::endpoint().is_none() {
                 bail!("the browser extension is not connected");
             }
-            let id = hub.push_cic(
-                &ctx.paths,
-                to,
-                settings.web_follow && p.get("keep_web").and_then(Value::as_bool).unwrap_or(false),
-                now_ms(),
-            )?;
-            Ok(json!({"id": id}))
+            let mode = crate::web::start_cic(&ctx.web, &ctx.paths, to, false, now_ms())?;
+            Ok(json!({"mode": mode}))
+        }
+        // Save the browser's current claude.ai session for its account (through Chrome's DevTools).
+        "cdp.capture" => {
+            crate::web::cdp_connect(&ctx.web)?;
+            let handle = ctx.web.lock().unwrap().cdp.clone();
+            let mut guard = handle.lock().unwrap();
+            let cdp = guard.as_mut().context("not connected to Chrome")?;
+            let name = crate::web::cdp_capture(cdp, &ctx.paths, now_ms())?;
+            Ok(json!({"account": name}))
+        }
+        // Connect to Chrome's DevTools now (Chrome asks to allow it), so later moves need nothing.
+        "cdp.connect" => {
+            let web = ctx.web.clone();
+            std::thread::spawn(move || {
+                let _ = crate::web::cdp_connect(&web);
+            });
+            Ok(json!({"ok": true}))
         }
         "web.cic_done" => {
             let ok = p.get("ok").and_then(Value::as_bool).unwrap_or(false);

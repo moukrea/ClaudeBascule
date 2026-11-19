@@ -486,3 +486,5 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 .ok-line svg { width: 18px; height: 18px; stroke-width: 2.4; }
 .sn.done { background: var(--go-soft); color: var(--go); display: grid; place-items: center; }
 .sn.done svg { width: 14px; height: 14px; stroke-width: 2.6; }
+.about.cdp { margin-top: 10px; align-items: start; }
+.about.cdp .small { margin-top: 6px; max-width: 520px; }
