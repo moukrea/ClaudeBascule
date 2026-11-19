@@ -77,6 +77,21 @@ With [jaunt](https://jaunt.one) installed, it also sees your Claude Code session
 The jaunt dot at the top of the window shows the connection: green when connected; click it to
 connect when jaunt is installed but not connected yet.
 
+## claude.ai in your browser (optional)
+
+Claude Bascule can switch claude.ai in Chrome, Edge, Brave or Chromium along with Claude Code,
+or on its own from an account's menu. It needs its small companion extension,
+**Claude Bascule Connector**, installed once:
+
+1. Open **Settings → Browser** in Claude Bascule: it shows the extension's folder.
+2. In the browser, open `chrome://extensions`, turn on **Developer mode**, click
+   **Load unpacked** and choose that folder.
+3. Sign each account in to claude.ai once in that browser (the button **Sign in in the browser**
+   opens the page). Claude Bascule keeps each session in its private folder, like the tokens.
+
+The Claude in Chrome extension keeps its own sign-in: it follows the browser's account the next
+time it signs in; sign out and in again from its panel to make it follow at once (no code needed).
+
 ## Uninstall
 
 - **Linux**: `systemctl --user disable --now claude-bascule; rm -f ~/.local/bin/bascule ~/.local/bin/bascule-app ~/.config/systemd/user/claude-bascule.service ~/.local/share/applications/claude-bascule.desktop`

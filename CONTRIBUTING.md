@@ -7,6 +7,7 @@
 | `crates/bascule-core` | Everything that matters: vault and switch (`store`, `vault`), quotas (`usage`), rules (`engine`), the service (`daemon`, `control`), jaunt client, platform specifics (`platform`), self-update (`update`). |
 | `crates/bascule` | The `bascule` command line (status, switch, login, daemon…). |
 | `app` | The window (Tauri 2, static HTML/CSS/JS in `app/ui`, no build step). `bascule-app --service` runs the service without a window. |
+| `extension/chrome` | Claude Bascule Connector, the browser extension for claude.ai (loaded unpacked; no build step). |
 | `dist` | Installers and packaging used by the release. |
 | `tools` | Icons, README images, version calculation, local install. |
 | `docs/internals.md` | How it works: where Claude Code keeps tokens, the switch, quotas, rules. |

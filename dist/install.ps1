@@ -50,6 +50,17 @@ try {
 
     $app = Join-Path $dir 'bascule-app.exe'
 
+    # The browser extension (Claude Bascule Connector) and its native messaging host.
+    $hostId = 'io.github.moukrea.claudebascule'
+    $hostJson = Join-Path $dir 'native-host.json'
+    @{ name = $hostId; description = 'Claude Bascule'; path = (Join-Path $dir 'bascule.exe'); type = 'stdio';
+       allowed_origins = @('chrome-extension://comipnngbifajjpfbagbmlfgckllcobj/') } | ConvertTo-Json | Set-Content -Encoding ASCII $hostJson
+    foreach ($b in 'Google\Chrome', 'Chromium', 'BraveSoftware\Brave-Browser', 'Microsoft\Edge', 'Vivaldi') {
+        $key = "HKCU:\Software\$b\NativeMessagingHosts\$hostId"
+        New-Item -Path $key -Force | Out-Null
+        Set-ItemProperty -Path $key -Name '(default)' -Value $hostJson
+    }
+
     # The service starts with the session (no console window).
     Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'ClaudeBascule' -Value "`"$app`" --service"
 

@@ -64,6 +64,26 @@ on Windows a 127.0.0.1 port with a key in `%LOCALAPPDATA%\jaunt\control.json`), 
 session events, and sends the resume message with jaunt's actions (never simulated keystrokes).
 Without jaunt, switching still works; blocked sessions just aren't resumed for you.
 
+## claude.ai in the browser
+
+A claude.ai session is a set of cookies on `claude.ai` (`sessionKey`, `sessionKeyV3`, their `LC`
+variants, `routingHint`, `lastActiveOrg`; the first ones are HttpOnly). The **Claude Bascule
+Connector** extension (`extension/chrome`, fixed ID `comipnngbifajjpfbagbmlfgckllcobj` from the
+manifest's `key`) reads and sets them with `chrome.cookies`, and talks to the service through the
+browser's native messaging: the installer registers the host `io.github.moukrea.claudebascule`,
+which is `bascule` itself (started with the extension's origin as argument; see
+`crates/bascule/src/native_host.rs`). The host relays `web.hello`, `web.capture` and `web.result`
+to the service, and long-polls `web.next` for commands (`switch`, `login`).
+
+- A capture (sent when the session cookies change) is matched to an account by the email
+  `https://claude.ai/api/account` returns, else by `lastActiveOrg` against each account's
+  `organizationUuid`, and saved to `accounts/<id>/web-session.json` (private).
+- A switch saves the browser's current session, removes the session cookies, sets the target's,
+  reloads claude.ai tabs and checks the result.
+- The Claude in Chrome extension signs in on its own (OAuth with PKCE through
+  `claude.ai/oauth/authorize`, tokens in its own storage): it follows the browser's session at its
+  next (silent) sign-in only.
+
 ## Local endpoint
 
 The service answers the app and the CLI on `<state>/bascule.sock` (Unix) or, on Windows, on a

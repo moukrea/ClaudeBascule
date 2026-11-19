@@ -13,6 +13,7 @@ case "$kind" in
     install -m 0755 "$bin/bascule" "$bin/bascule-app" "$stage/"
     install -m 0644 "$here/app/icons/icon.png" "$stage/claude-bascule.png"
     install -m 0644 "$here/assets/icon.svg" "$stage/claude-bascule.svg"
+    cp -R "$here/extension/chrome" "$stage/chrome-extension"
     tar -czf "$out/claude-bascule-linux-x86_64.tar.gz" -C "$stage" .
     ;;
   macos)
@@ -20,6 +21,7 @@ case "$kind" in
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     install -m 0755 "$bin/bascule" "$bin/bascule-app" "$app/Contents/MacOS/"
     cp "$here/app/icons/icon.icns" "$app/Contents/Resources/icon.icns"
+    cp -R "$here/extension/chrome" "$app/Contents/Resources/chrome-extension"
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

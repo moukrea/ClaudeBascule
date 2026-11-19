@@ -94,7 +94,10 @@ jobs:
           $v = & target/release/bascule.exe --version
           if ($v -ne "bascule $env:VERSION") { throw "built version is '$v', expected $env:VERSION" }
           New-Item -ItemType Directory -Force out | Out-Null
-          Compress-Archive -Path target/release/bascule.exe, target/release/bascule-app.exe -DestinationPath out/claude-bascule-windows-x86_64.zip
+          New-Item -ItemType Directory -Force stage | Out-Null
+          Copy-Item target/release/bascule.exe, target/release/bascule-app.exe stage/
+          Copy-Item -Recurse extension/chrome stage/chrome-extension
+          Compress-Archive -Path stage/* -DestinationPath out/claude-bascule-windows-x86_64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.kind }}

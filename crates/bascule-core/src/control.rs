@@ -7,6 +7,7 @@ use crate::config::{AccountList, Settings};
 use crate::daemon::Cmd;
 use crate::login::{self, Login};
 use crate::observe::log;
+use crate::observe::now_ms;
 use crate::paths::Paths;
 use crate::platform::{self, Stream};
 use anyhow::{bail, Context, Result};
@@ -41,6 +42,7 @@ struct Ctx {
     /// Windows: the key every request must carry.
     key: Option<String>,
     updates: Arc<Mutex<crate::update::UpdateState>>,
+    web: Arc<Mutex<crate::web::WebHub>>,
 }
 
 /// Windows (no Unix sockets): `{port, key, pid}` of a 127.0.0.1 listener; every line carries the key.
@@ -53,6 +55,7 @@ pub fn serve(
     shared: Arc<Mutex<Value>>,
     tx: Sender<Cmd>,
     updates: Arc<Mutex<crate::update::UpdateState>>,
+    web: Arc<Mutex<crate::web::WebHub>>,
 ) -> Result<()> {
     // Windows has no Unix sockets: a 127.0.0.1 port, and a key every request must carry.
     #[cfg(not(unix))]
@@ -76,6 +79,7 @@ pub fn serve(
         child: Default::default(),
         key,
         updates,
+        web,
     });
     #[cfg(unix)]
     {
@@ -324,6 +328,139 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 );
             }
             log(&ctx.paths, "jaunt.enrolled", json!({}));
+            Ok(json!({"ok": true}))
+        }
+        "web.hello" => {
+            let mut hub = ctx.web.lock().unwrap();
+            hub.seen_ms = now_ms();
+            hub.browser = p.get("browser").and_then(Value::as_str).map(str::to_string);
+            hub.version = p.get("version").and_then(Value::as_str).map(str::to_string);
+            Ok(json!({"ok": true}))
+        }
+        // Long poll from the browser: the next command, or null after `timeout_ms`.
+        "web.next" => {
+            let timeout = p
+                .get("timeout_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(20_000)
+                .min(60_000);
+            let until = std::time::Instant::now() + Duration::from_millis(timeout);
+            loop {
+                {
+                    let mut hub = ctx.web.lock().unwrap();
+                    hub.seen_ms = now_ms();
+                    if let Some(c) = hub.queue.pop_front() {
+                        return Ok(c);
+                    }
+                }
+                if std::time::Instant::now() >= until {
+                    return Ok(Value::Null);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        }
+        // The browser's claude.ai session (sent when it changes): saved for its account.
+        "web.capture" => {
+            let list = AccountList::load(&ctx.paths.accounts_file())?;
+            let cookies = crate::web::session_cookies(
+                p.get("cookies")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+            );
+            let email = p.get("email").and_then(Value::as_str);
+            let signed_in = cookies.iter().any(|c| {
+                matches!(
+                    c.get("name").and_then(Value::as_str),
+                    Some("sessionKey") | Some("sessionKeyV3")
+                )
+            });
+            let mut hub = ctx.web.lock().unwrap();
+            hub.seen_ms = now_ms();
+            if !signed_in {
+                hub.account = None;
+                hub.unknown_email = None;
+                return Ok(json!({"account": null}));
+            }
+            match crate::web::account_for(&ctx.paths, &list, email, &cookies) {
+                Some(name) => {
+                    let email = list
+                        .by_name(&name)
+                        .map(|a| a.email.clone())
+                        .unwrap_or_default();
+                    crate::web::save(
+                        &ctx.paths,
+                        &name,
+                        &crate::web::WebSession {
+                            email,
+                            cookies,
+                            saved_at: now_ms(),
+                        },
+                    )?;
+                    if hub.account.as_deref() != Some(name.as_str()) {
+                        hub.notes
+                            .push_back(("web.account".into(), json!({"account": name})));
+                    }
+                    hub.account = Some(name.clone());
+                    hub.unknown_email = None;
+                    Ok(json!({"account": name}))
+                }
+                None => {
+                    hub.account = None;
+                    hub.unknown_email = email.map(str::to_string);
+                    Ok(json!({"account": null}))
+                }
+            }
+        }
+        "web.result" => {
+            let ok = p.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let mut hub = ctx.web.lock().unwrap();
+            hub.last_error = if ok {
+                None
+            } else {
+                p.get("error").and_then(Value::as_str).map(str::to_string)
+            };
+            let note = json!({"account": p.get("to"), "error": hub.last_error});
+            let kind = if ok {
+                "web.switched"
+            } else {
+                "web.switch_failed"
+            };
+            hub.notes.push_back((kind.into(), note));
+            Ok(json!({"ok": true}))
+        }
+        "web.switch" => {
+            let to = p
+                .get("to")
+                .and_then(Value::as_str)
+                .context("web.switch needs 'to'")?;
+            let mut hub = ctx.web.lock().unwrap();
+            if !hub.connected(now_ms()) {
+                bail!("the browser extension is not connected");
+            }
+            hub.push_switch(&ctx.paths, to)?;
+            Ok(json!({"ok": true}))
+        }
+        "web.login" => {
+            let name = p
+                .get("account")
+                .and_then(Value::as_str)
+                .context("web.login needs 'account'")?;
+            let list = AccountList::load(&ctx.paths.accounts_file())?;
+            let a = list.by_name(name).context("unknown account")?;
+            let mut hub = ctx.web.lock().unwrap();
+            if !hub.connected(now_ms()) {
+                bail!("the browser extension is not connected");
+            }
+            hub.push_login(&a.email);
+            Ok(json!({"ok": true}))
+        }
+        "web.forget" => {
+            let name = p
+                .get("account")
+                .and_then(Value::as_str)
+                .context("web.forget needs 'account'")?;
+            crate::web::forget(&ctx.paths, name);
             Ok(json!({"ok": true}))
         }
         "update.check" => {
