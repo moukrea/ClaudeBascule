@@ -265,12 +265,12 @@ pub fn fetch(access_token: &str, with_resets: bool) -> Result<Usage> {
     let body: Value = match resp {
         Ok(r) => r.into_json().context("usage: bad JSON")?,
         Err(ureq::Error::Status(429, r)) => {
-            // The usage API answers "Retry-After: 0" while still limiting: wait 10 minutes then.
+            // The usage API answers "Retry-After: 0" while still limiting: the daemon waits at
+            // least `rate_limit_backoff_minutes`.
             let wait = r
                 .header("retry-after")
                 .and_then(|v| v.trim().parse::<u64>().ok())
-                .filter(|w| *w > 0)
-                .unwrap_or(600);
+                .unwrap_or(0);
             anyhow::bail!("usage: HTTP 429, retry after {wait}s")
         }
         Err(ureq::Error::Status(code, _)) => anyhow::bail!("usage: HTTP {code}"),

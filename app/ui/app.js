@@ -712,7 +712,7 @@ function evText(e) {
     case "jaunt.down": return tr("ev_jaunt_down");
     case "jaunt.lost": return tr("ev_jaunt_lost");
     case "switch.failed": return tr("ev_switch_failed", { a: lab(d.to) });
-    case "usage.rate_limited": return tr("ev_rate_limited", { a: lab(d.account) });
+    case "usage.rate_limited": return tr("ev_rate_limited", { a: lab(d.account), m: Math.max(1, Math.round((d.retry_after_s || 600) / 60)) });
     default: return null;
   }
 }
@@ -736,29 +736,37 @@ function renderJournal(root) {
   root.append(el("div", { class: "head" }, el("h1", { text: tr("tab_journal") }),
     segmented({ value: filter, options: ["all", "switch", "limit", "resume", "system"].map((k) => ({ value: k, label: tr("f_" + k) })), onChange: (v) => { filter = v; paintList(true); } })));
   paintList(false);
+  // Refused quota reads that keep coming back: suggest reading less often.
+  const since = Date.now() - 6 * 3600000;
+  const refused = (S.events || []).filter((e) => e.kind === "usage.rate_limited" && e.at >= since).length;
+  if (refused >= 3) {
+    root.append(el("div", { class: "hint" }, icon("alert"), el("span", { text: trn("hint_rate_limited", refused) }),
+      el("button", { class: "btn flat", type: "button", onclick: () => openSettings("delays", ["active_poll_seconds", "rate_limit_backoff_minutes"]) }, tr("hint_open_delays"))));
+  }
   root.append(listBox);
 }
 
 // ---------- settings ----------
 let settingsRepaint = null;
-function openSettings() {
+function openSettings(startTab = "switch", focusKeys = []) {
   const d = JSON.parse(JSON.stringify(S.settings));
   d.thresholds = d.thresholds || {};
   d.display_names = d.display_names || {};
   const order = rotationOf(d).concat(S.accounts.map((a) => a.name).filter((n) => !rotationOf(d).includes(n)));
   const included = new Set(rotationOf(d));
   let perWindow = Object.keys(d.thresholds).length > 0;
-  let tab = "switch";
+  let tab = startTab;
+  let flashKeys = focusKeys; // highlighted at the first paint only
   let dirty = false;
   let m = null;
   const actions = () => [{ label: tr("cancel"), onClick: (mm) => mm.close() }, { label: tr("save"), primary: true, disabled: !dirty, onClick: save }];
   const touch = () => { dirty = true; if (m) m.setActions(actions(), tr("unsaved")); };
   const row = (key, control, { stack, disabled } = {}) => {
     const help = I18N.en["h_" + key] ? tr("h_" + key) : "";
-    return el("div", { class: "row" + (stack ? " stack" : "") + (disabled ? " disabled" : "") }, el("div", { class: "rl", text: tr("s_" + key) }), help ? el("div", { class: "rh", text: help }) : null, el("div", { class: "rc" }, control));
+    return el("div", { class: "row" + (stack ? " stack" : "") + (disabled ? " disabled" : "") + (flashKeys.includes(key) ? " flash" : ""), "data-key": key }, el("div", { class: "rl", text: tr("s_" + key) }), help ? el("div", { class: "rh", text: help }) : null, el("div", { class: "rc" }, control));
   };
   const tg = (key, opts = {}) => row(key, toggle({ checked: d[key], onChange: (v) => { d[key] = v; touch(); paint(); } }), opts);
-  const STEP = { collect_seconds: 5, spontaneous_restart_seconds: 5, confirm_seconds: 5, reset_margin_seconds: 30, min_switch_gap_seconds: 1, active_poll_seconds: 30, reread_resting_minutes: 1, observe_poll_seconds: 5 };
+  const STEP = { collect_seconds: 5, spontaneous_restart_seconds: 5, confirm_seconds: 5, reset_margin_seconds: 30, min_switch_gap_seconds: 1, active_poll_seconds: 30, rate_limit_backoff_minutes: 5, reread_resting_minutes: 1, observe_poll_seconds: 5 };
   const num = (key, unit, { scale = 1, min = 0 } = {}) => {
     const step = STEP[key] || 1;
     const input = el("input", { type: "text", inputmode: "numeric", value: Math.round(d[key] / scale), "aria-label": tr("s_" + key) });
@@ -787,7 +795,7 @@ function openSettings() {
       } })),
       perWindow ? ["five_hour", "seven_day", "model"].map((k) => row("t_" + k, slider(() => d.thresholds[k] ?? d.threshold_percent, (v) => { d.thresholds[k] = v; }))) : null],
     delays: () => [num("collect_seconds", tr("unit_s")), num("spontaneous_restart_seconds", tr("unit_s")), num("confirm_seconds", tr("unit_s"), { min: 1 }), num("reset_margin_seconds", tr("unit_s")),
-      num("min_switch_gap_seconds", tr("unit_min"), { scale: 60 }), num("active_poll_seconds", tr("unit_s"), { min: 60 }), num("reread_resting_minutes", tr("unit_min"), { min: 1 }), num("observe_poll_seconds", tr("unit_s"), { min: 5 })],
+      num("min_switch_gap_seconds", tr("unit_min"), { scale: 60 }), num("active_poll_seconds", tr("unit_s"), { min: 60 }), num("rate_limit_backoff_minutes", tr("unit_min"), { min: 1 }), num("reread_resting_minutes", tr("unit_min"), { min: 1 }), num("observe_poll_seconds", tr("unit_s"), { min: 5 })],
     accounts: () => {
       const list = el("div", { class: "acct-list" });
       order.forEach((n, i) => {
@@ -872,6 +880,8 @@ function openSettings() {
   }
   paint();
   m = modal({ title: tr("settings"), wide: true, body: shell, actions: actions(), onClose: () => { settingsRepaint = null; } });
+  flashKeys = [];
+  if (focusKeys.length) setTimeout(() => { const r = shell.querySelector(`[data-key="${focusKeys[0]}"]`); if (r) r.scrollIntoView({ block: "center", behavior: "smooth" }); }, 80);
   settingsRepaint = paint;
 }
 
