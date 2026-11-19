@@ -45,6 +45,9 @@ pub struct Settings {
     /// Read the active account's quotas from the usage API this often. Between reads, anticipation
     /// uses the windows Claude Code's status line reports through jaunt (no extra request).
     pub active_poll_seconds: u64,
+    /// After Anthropic refuses a quota read (HTTP 429), wait at least this long before reading
+    /// that account again.
+    pub rate_limit_backoff_minutes: u64,
     /// Let model-scoped windows (e.g. Fable weekly) trigger an anticipated switch (on by default).
     /// Off: a model limit switches only when a session actually hits it.
     pub anticipate_model_windows: bool,
@@ -89,6 +92,7 @@ impl Default for Settings {
             resume_message: String::new(),
             observe_poll_seconds: 30,
             active_poll_seconds: 300,
+            rate_limit_backoff_minutes: 10,
             anticipate_model_windows: true,
             notify: true,
             read_resets: true,

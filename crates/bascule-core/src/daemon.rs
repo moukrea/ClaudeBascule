@@ -362,10 +362,9 @@ impl Daemon {
             }
         }
         if let Some(wait) = usage_error.as_deref().and_then(usage::retry_after) {
-            self.backoff.insert(
-                name.to_string(),
-                Instant::now() + Duration::from_secs(wait.max(60)),
-            );
+            let wait = wait.max(self.settings.rate_limit_backoff_minutes.max(1) * 60);
+            self.backoff
+                .insert(name.to_string(), Instant::now() + Duration::from_secs(wait));
             self.event(
                 "usage.rate_limited",
                 json!({"account": name, "retry_after_s": wait}),
