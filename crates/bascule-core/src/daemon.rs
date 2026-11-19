@@ -12,6 +12,7 @@ use crate::vault::{self, Where};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -131,6 +132,8 @@ pub struct Daemon {
     rx: Receiver<Cmd>,
     /// Latest release check, shared with the control endpoint (`update.check`).
     pub updates: Arc<Mutex<crate::update::UpdateState>>,
+    update_busy: Arc<std::sync::atomic::AtomicBool>,
+    update_tried_ms: i64,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -255,6 +258,8 @@ impl Daemon {
             notified_ready: 0,
             shared,
             rx,
+            update_busy: Default::default(),
+            update_tried_ms: 0,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1214,6 +1219,27 @@ impl Daemon {
         }
     }
 
+    /// Releases: checked at start, then every hour of wall-clock time (a laptop that slept all
+    /// night checks as soon as it wakes), in the background.
+    fn update_tick(&mut self) {
+        if !self.settings.check_updates || self.update_busy.load(Ordering::SeqCst) {
+            return;
+        }
+        let now = now_ms();
+        let last = self.updates.lock().unwrap().checked_at.unwrap_or(0);
+        if now - last.max(self.update_tried_ms) < 3_600_000 {
+            return;
+        }
+        self.update_tried_ms = now;
+        self.update_busy.store(true, Ordering::SeqCst);
+        let (updates, busy) = (self.updates.clone(), self.update_busy.clone());
+        std::thread::spawn(move || {
+            let st = crate::update::check(env!("CARGO_PKG_VERSION"));
+            *updates.lock().unwrap() = st;
+            busy.store(false, Ordering::SeqCst);
+        });
+    }
+
     fn publish(&self) {
         let active = self.active();
         let accounts: Vec<Value> = self
@@ -1394,25 +1420,11 @@ impl Daemon {
                 }
             }
         }
-        // Releases: checked at start, then every hour, in the background.
-        {
-            let updates = self.updates.clone();
-            let settings_file = self.paths.settings_file();
-            std::thread::spawn(move || loop {
-                if Settings::load(&settings_file)
-                    .map(|s| s.check_updates)
-                    .unwrap_or(true)
-                {
-                    let st = crate::update::check(env!("CARGO_PKG_VERSION"));
-                    *updates.lock().unwrap() = st;
-                }
-                std::thread::sleep(Duration::from_secs(3600));
-            });
-        }
         // The app can show the accounts at once, before the first (possibly slow) quota reads.
         self.publish();
         while !stop() {
             self.reload_settings();
+            self.update_tick();
             while let Ok(cmd) = self.rx.try_recv() {
                 self.handle(cmd);
             }

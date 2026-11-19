@@ -475,12 +475,16 @@ function confirmSwitch(a) {
 // Pick an icon for an account (or its initial); saved at once.
 function openIconPicker(a, after) {
   const cur = iconOf(a.name) || "";
-  const pick = async (key, m) => {
+  const pick = (key, m) => {
     const icons = { ...((S.settings && S.settings.avatar_icons) || {}) };
     if (key) icons[a.name] = key; else delete icons[a.name];
     m.close();
-    await act(() => call("settings.set", { settings: { avatar_icons: icons } }));
+    // Shown at once everywhere (cards, settings); the service saves it meanwhile.
+    S.settings.avatar_icons = icons;
+    lastJson = "";
+    render(true);
     if (after) after();
+    act(() => call("settings.set", { settings: { avatar_icons: icons } }));
   };
   const grid = el("div", { class: "icon-grid", role: "radiogroup" });
   const m = modal({ title: tr("icon_title", { a: a.label }), body: grid, actions: [] });
@@ -939,5 +943,10 @@ async function refresh() {
   }
 }
 booting();
+// A window left open for long: look again when it comes back to the front.
+window.addEventListener("focus", () => {
+  const up = (S && S.update) || {};
+  if (S && S.settings && S.settings.check_updates !== false && (!up.checked_at || Date.now() - up.checked_at > 3600000)) call("update.check").catch(() => {});
+});
 refresh();
 setInterval(refresh, 1500);
