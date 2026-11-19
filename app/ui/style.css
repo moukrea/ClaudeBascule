@@ -488,3 +488,9 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 .sn.done svg { width: 14px; height: 14px; stroke-width: 2.6; }
 .about.cdp { margin-top: 10px; align-items: start; }
 .about.cdp .small { margin-top: 6px; max-width: 520px; }
+
+/* Accounts header: icon-only actions and the follow toggles (marks in their knobs) */
+.head-actions { align-items: center; gap: 6px; }
+.head-actions .toggle { margin-right: 4px; }
+svg.brand { fill: currentColor; stroke: none; }
+.toggle.auto .knob svg.brand { width: 12px; height: 12px; }
