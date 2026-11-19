@@ -132,6 +132,8 @@ pub struct Daemon {
     rx: Receiver<Cmd>,
     /// Latest release check, shared with the control endpoint (`update.check`).
     pub updates: Arc<Mutex<crate::update::UpdateState>>,
+    /// claude.ai in the browser (the Connector extension), shared with the control endpoint.
+    pub web: Arc<Mutex<crate::web::WebHub>>,
     update_busy: Arc<std::sync::atomic::AtomicBool>,
     update_tried_ms: i64,
 }
@@ -259,6 +261,7 @@ impl Daemon {
             shared,
             rx,
             update_busy: Default::default(),
+            web: Default::default(),
             update_tried_ms: 0,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
@@ -729,6 +732,7 @@ impl Daemon {
                     "switch",
                     json!({"from": from, "to": to, "reason": reason, "manual": manual}),
                 );
+                self.web_follow(to);
                 let lang = self.lang();
                 let body = format!(
                     "{} → {} ({reason})",
@@ -1218,6 +1222,22 @@ impl Daemon {
         }
     }
 
+    /// After Claude Code switched: claude.ai in the browser follows, when the Connector is there.
+    fn web_follow(&mut self, to: &str) {
+        if !self.settings.web_follow {
+            return;
+        }
+        let mut hub = self.web.lock().unwrap();
+        if !hub.connected(now_ms()) || hub.account.as_deref() == Some(to) {
+            return;
+        }
+        let r = hub.push_switch(&self.paths, to);
+        drop(hub);
+        if r.is_err() {
+            self.event("web.no_session", json!({"account": to}));
+        }
+    }
+
     /// Releases: checked at start, then every hour of wall-clock time (a laptop that slept all
     /// night checks as soon as it wakes), in the background.
     fn update_tick(&mut self) {
@@ -1237,6 +1257,21 @@ impl Daemon {
             *updates.lock().unwrap() = st;
             busy.store(false, Ordering::SeqCst);
         });
+    }
+
+    fn web_view(&self) -> Value {
+        let hub = self.web.lock().unwrap();
+        let sessions: Vec<&str> = self
+            .list
+            .accounts
+            .iter()
+            .filter(|a| crate::web::has(&self.paths, &a.name))
+            .map(|a| a.name.as_str())
+            .collect();
+        json!({"connected": hub.connected(now_ms()), "browser": hub.browser, "version": hub.version,
+            "account": hub.account, "unknown_email": hub.unknown_email, "last_error": hub.last_error,
+            "pending": !hub.queue.is_empty(), "sessions": sessions,
+            "extension_dir": crate::platform::extension_dir().map(|p| p.display().to_string())})
     }
 
     fn publish(&self) {
@@ -1283,7 +1318,7 @@ impl Daemon {
             "settings": self.settings, "active": active, "last_switch": self.last_switch,
             "waiting_return": self.waiting_return, "accounts": accounts, "sessions": sessions,
             "resume": self.resume.values().collect::<Vec<_>>(), "events": self.events, "jaunt": self.jaunt_state,
-            "update": *self.updates.lock().unwrap(), "platform": std::env::consts::OS,
+            "update": *self.updates.lock().unwrap(), "platform": std::env::consts::OS, "web": self.web_view(),
         });
         if let Ok(mut g) = self.shared.lock() {
             *g = v.clone();
@@ -1424,6 +1459,10 @@ impl Daemon {
         while !stop() {
             self.reload_settings();
             self.update_tick();
+            let notes: Vec<(String, Value)> = self.web.lock().unwrap().notes.drain(..).collect();
+            for (kind, data) in notes {
+                self.event(&kind, data);
+            }
             while let Ok(cmd) = self.rx.try_recv() {
                 self.handle(cmd);
             }
@@ -1498,7 +1537,13 @@ pub fn run_service(
         shared.clone(),
         rx,
     );
-    crate::control::serve(paths, shared, tx, daemon.updates.clone())?;
+    crate::control::serve(
+        paths,
+        shared,
+        tx,
+        daemon.updates.clone(),
+        daemon.web.clone(),
+    )?;
     let mut daemon = daemon;
     daemon.run(&|| false)
 }

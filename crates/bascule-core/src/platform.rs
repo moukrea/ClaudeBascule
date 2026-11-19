@@ -412,3 +412,45 @@ pub fn keyed(mut v: Value, key: &Option<String>) -> Value {
     }
     v
 }
+
+/// Where the installer puts the browser extension (Claude Bascule Connector), to load unpacked.
+pub fn extension_dir() -> Option<PathBuf> {
+    let home = crate::paths::home_dir();
+    let env = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    let dir = if cfg!(windows) {
+        env("LOCALAPPDATA")
+            .unwrap_or_else(|| home.join("AppData").join("Local"))
+            .join("Programs")
+            .join("ClaudeBascule")
+            .join("chrome-extension")
+    } else if cfg!(target_os = "macos") {
+        home.join("Library")
+            .join("Application Support")
+            .join("ClaudeBascule")
+            .join("chrome-extension")
+    } else {
+        env("XDG_DATA_HOME")
+            .unwrap_or_else(|| home.join(".local").join("share"))
+            .join("claude-bascule")
+            .join("chrome-extension")
+    };
+    dir.join("manifest.json").is_file().then_some(dir)
+}
+
+/// Open a folder in the file manager.
+pub fn open_folder(path: &Path) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    let mut c = Command::new("xdg-open");
+    #[cfg(target_os = "macos")]
+    let mut c = Command::new("open");
+    #[cfg(windows)]
+    let mut c = Command::new("explorer");
+    detach(c.arg(path))
+        .spawn()
+        .map(|_| ())
+        .context("open the folder")
+}

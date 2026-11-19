@@ -3,6 +3,7 @@
 use anyhow::{bail, Context, Result};
 use bascule_core::config::{AccountList, Settings};
 use bascule_core::control;
+mod native_host;
 use bascule_core::jaunt::Jaunt;
 use bascule_core::login::{self, Login};
 use bascule_core::observe;
@@ -76,6 +77,14 @@ enum Cmd {
 }
 
 fn main() {
+    // Started by a browser as its native messaging host: `bascule chrome-extension://<id>/ ...`.
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a.starts_with("chrome-extension://"))
+    {
+        native_host::run();
+        return;
+    }
     if let Err(e) = run() {
         eprintln!("bascule: {e:#}");
         std::process::exit(1);

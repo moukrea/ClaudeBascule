@@ -25,6 +25,12 @@ fn open_url(url: String) -> Result<(), String> {
     platform::open_url(&url).map_err(|e| format!("{e:#}"))
 }
 
+/// Show a folder (the browser extension's) in the file manager.
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    platform::open_folder(std::path::Path::new(&path)).map_err(|e| format!("{e:#}"))
+}
+
 /// Install the latest release over this one: the platform's install command, detached, which
 /// replaces the binaries, restarts the service and opens the app again.
 #[tauri::command]
@@ -101,7 +107,12 @@ fn main() {
     let pid_file = paths.state.join("app.pid");
     let _ = std::fs::write(&pid_file, std::process::id().to_string());
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![call, open_url, apply_update])
+        .invoke_handler(tauri::generate_handler![
+            call,
+            open_url,
+            apply_update,
+            open_folder
+        ])
         .run(tauri::generate_context!())
         .expect("Claude Bascule could not start");
     let _ = std::fs::remove_file(pid_file);

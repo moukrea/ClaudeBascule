@@ -11,6 +11,30 @@ set -eu
 
 REPO="moukrea/ClaudeBascule"
 ID="io.github.moukrea.claudebascule"
+# The browser extension (Claude Bascule Connector) and its native messaging host.
+EXT_ID="comipnngbifajjpfbagbmlfgckllcobj"
+
+# Install the extension folder ($1 source, $2 destination) and register the native host ($3 =
+# the bascule binary) for every Chromium-based browser present ($4... their config folders).
+setup_browser() {
+  src=$1; dest=$2; host_bin=$3; shift 3
+  [ -d "$src" ] || return 0
+  mkdir -p "$(dirname "$dest")"
+  rm -rf "$dest.new"; cp -R "$src" "$dest.new"; rm -rf "$dest"; mv "$dest.new" "$dest"
+  for d in "$@"; do
+    [ -d "$d" ] || continue
+    mkdir -p "$d/NativeMessagingHosts"
+    cat > "$d/NativeMessagingHosts/$ID.json" <<EOF
+{
+  "name": "$ID",
+  "description": "Claude Bascule",
+  "path": "$host_bin",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+}
+EOF
+  done
+}
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*" >&2; }
@@ -150,6 +174,9 @@ EOF
     warn "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0    Fedora: sudo dnf install webkit2gtk4.1    Arch: sudo pacman -S webkit2gtk-4.1"
   fi
 
+  setup_browser "$tmp/x/chrome-extension" "$data/claude-bascule/chrome-extension" "$bin/bascule" \
+    "$conf/google-chrome" "$conf/google-chrome-beta" "$conf/chromium" "$conf/BraveSoftware/Brave-Browser" "$conf/microsoft-edge" "$conf/vivaldi"
+
   case ":$PATH:" in *":$bin:"*) ;; *) warn "Add $bin to your PATH to use the 'bascule' command." ;; esac
 
   # Wait for the service to answer before opening the window.
@@ -177,6 +204,9 @@ else
   xattr -dr com.apple.quarantine "$app.new" 2>/dev/null || true
   rm -rf "$app"
   mv "$app.new" "$app"
+  sup="$HOME/Library/Application Support"
+  setup_browser "$app/Contents/Resources/chrome-extension" "$sup/ClaudeBascule/chrome-extension" "$app/Contents/MacOS/bascule" \
+    "$sup/Google/Chrome" "$sup/Google/Chrome Beta" "$sup/Chromium" "$sup/BraveSoftware/Brave-Browser" "$sup/Microsoft Edge" "$sup/Vivaldi"
   # The command line tool.
   mkdir -p "$HOME/.local/bin"
   ln -sf "$app/Contents/MacOS/bascule" "$HOME/.local/bin/bascule"

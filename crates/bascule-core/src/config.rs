@@ -66,6 +66,9 @@ pub struct Settings {
     pub language: String,
     /// Look for a new release on GitHub every hour (and when the window opens).
     pub check_updates: bool,
+    /// When Claude Code switches account, switch claude.ai in the browser too (needs the
+    /// Claude Bascule Connector extension and a saved web session for the account).
+    pub web_follow: bool,
 }
 
 /// The languages Bascule ships, the same as jaunt and daffin.
@@ -101,6 +104,7 @@ impl Default for Settings {
             hide_emails: false,
             language: String::new(),
             check_updates: true,
+            web_follow: true,
         }
     }
 }

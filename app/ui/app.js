@@ -24,6 +24,8 @@ const ICON = {
   x: "M18 6 6 18M6 6l12 12", up: "M18 15l-6-6-6 6", down: "M6 9l6 6 6-6", send: "M22 2 11 13M22 2l-7 20-4-9-9-4z", plus: "M12 5v14M5 12h14", minus: "M5 12h14",
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   smile: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
+  globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10z",
+  folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6", download: "M12 3v12M7 10l5 5 5-5M5 21h14",
   link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
   user: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
@@ -418,6 +420,8 @@ function renderAccounts(root) {
     if (plan(a)) badges.push(el("span", { text: plan(a) }));
     if (a.exhausted && a.exhausted.until_ms > Date.now()) badges.push(el("span", { class: "badge warn", text: tr("until", { t: fmtTime(a.exhausted.until_ms) }) }));
     if (!rot.includes(a.name)) badges.push(el("span", { text: tr("out_rot") }));
+    const web = S.web || {};
+    if (web.connected && web.account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("web_here_tip") }, icon("globe"), tr("web_badge")));
     const more = el("button", { class: "icon-btn", type: "button", "aria-label": "Menu" }, icon("more"));
     more.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -426,6 +430,7 @@ function renderAccounts(root) {
         !active && a.place === "resting" ? { icon: "swap", label: tr("switch_here"), onClick: () => confirmSwitch(a) } : null,
         { icon: "refresh", label: tr("reread"), onClick: () => act(() => call("reread"), tr("reread_ok")) },
         { icon: "smile", label: tr("change_icon"), onClick: () => openIconPicker(a) },
+        webCan(a) ? { icon: "globe", label: tr("web_switch"), onClick: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) } : null,
         { icon: "key", label: a.place === "signed_out" ? tr("sign_in") : tr("sign_in_again"), onClick: () => startLogin(a) },
         "sep",
         { icon: "rotate", label: inRot ? tr("from_rot") : tr("to_rot"), onClick: () => {
@@ -493,6 +498,13 @@ function openIconPicker(a, after) {
   for (const key of Object.keys(AVATAR_ICONS)) {
     grid.append(el("button", { class: "icon-tile" + (key === cur ? " sel" : ""), type: "button", role: "radio", "aria-checked": String(key === cur), "aria-label": key, onclick: () => pick(key, m) }, avatarIcon(key)));
   }
+}
+// claude.ai in the browser (the Connector extension)
+const webHas = (name) => ((S.web && S.web.sessions) || []).includes(name);
+const webCan = (a) => !!(S.web && S.web.connected && webHas(a.name) && S.web.account !== a.name);
+function browserName(ua) {
+  ua = ua || "";
+  return /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Vivaldi/.test(ua) ? "Vivaldi" : /Chrome\//.test(ua) ? "Chrome" : tr("web_browser");
 }
 function confirmRemove(a) {
   modal({ title: tr("remove_title", { a: a.label }), body: el("p", { text: tr("remove_body") }), actions: [
@@ -691,7 +703,7 @@ function renderSessions(root) {
 // ---------- journal ----------
 let filter = "all";
 const KIND = { switch: "sw", "session.limit": "lim", "resume.resumed": "ok", "resume.failed": "lim", "resume.needs_you": "lim", all_exhausted: "lim",
-  "anticipate.no_room": "warn", "anticipate.model_idle": "warn", "usage.rate_limited": "warn" };
+  "anticipate.no_room": "warn", "anticipate.model_idle": "warn", "usage.rate_limited": "warn", "web.switched": "sw", "web.switch_failed": "lim", "web.no_session": "warn" };
 const group = (k) => (k.startsWith("switch") ? "switch" : k.includes("limit") || k === "all_exhausted" || k.startsWith("anticipate.") ? "limit" : k.startsWith("resume") ? "resume" : "system");
 function evText(e) {
   const d = e.data || {};
@@ -712,6 +724,10 @@ function evText(e) {
     case "jaunt.down": return tr("ev_jaunt_down");
     case "jaunt.lost": return tr("ev_jaunt_lost");
     case "switch.failed": return tr("ev_switch_failed", { a: lab(d.to) });
+    case "web.account": return tr("ev_web_account", { a: lab(d.account) });
+    case "web.switched": return tr("ev_web_switched", { a: lab(d.account) });
+    case "web.switch_failed": return tr("ev_web_switch_failed", { a: lab(d.account) }) + (d.error ? ` · ${d.error}` : "");
+    case "web.no_session": return tr("ev_web_no_session", { a: lab(d.account) });
     case "usage.rate_limited": return tr("ev_rate_limited", { a: lab(d.account), m: Math.max(1, Math.round((d.retry_after_s || 600) / 60)) });
     default: return null;
   }
@@ -747,7 +763,7 @@ function renderJournal(root) {
 }
 
 // ---------- settings ----------
-let settingsRepaint = null;
+let settingsRepaint = null, settingsTabNow = null, lastWeb = "";
 function openSettings(startTab = "switch", focusKeys = []) {
   const d = JSON.parse(JSON.stringify(S.settings));
   d.thresholds = d.thresholds || {};
@@ -813,6 +829,38 @@ function openSettings(startTab = "switch", focusKeys = []) {
       list.append(el("button", { class: "btn flat add-row", type: "button", onclick: () => { m.close(); openAddAccount(); } }, icon("plus"), tr("add_account")));
       return [row("next_account_rule", select({ value: d.next_account_rule, options: ["headroom", "order"].map((v) => ({ value: v, label: tr("rule_" + v), help: tr("rule_" + v + "_h") })), onChange: (v) => { d.next_account_rule = v; touch(); } })),
         row("accounts_list", list, { stack: true })];
+    },
+    browser: () => {
+      const w = S.web || {};
+      const status = w.connected
+        ? [tr("web_connected", { b: browserName(w.browser) }), w.account ? tr("web_on", { a: lab(w.account) }) : w.unknown_email ? tr("web_unknown", { e: w.unknown_email }) : tr("web_signed_out")].join(" · ")
+        : tr("web_not_connected");
+      const out = [el("div", { class: "about" },
+        el("div", { class: "web-ico" + (w.connected ? " on" : "") }, icon("globe")),
+        el("div", {}, el("div", { class: "about-name", text: "Claude Bascule Connector" }), el("div", { class: "about-st" + (w.connected ? " hot" : ""), text: status })),
+        el("span", {}))];
+      if (!w.connected) {
+        out.push(el("div", { class: "steps web-steps" },
+          el("div", { class: "step" }, el("span", { class: "sn", text: "1" }), el("div", { class: "st", text: tr("web_step1") })),
+          el("div", { class: "step" }, el("span", { class: "sn", text: "2" }), el("div", {}, el("div", { class: "st", text: tr("web_step2") }),
+            w.extension_dir ? el("div", { class: "path-row" }, el("code", { class: "path", text: w.extension_dir }),
+              el("button", { class: "btn", type: "button", onclick: () => invoke("open_folder", { path: w.extension_dir }).catch((e) => toast(String(e), "bad")) }, icon("folder"), tr("web_open_folder"))) : el("div", { class: "muted", text: tr("web_no_folder") }))),
+          el("div", { class: "step" }, el("span", { class: "sn", text: "3" }), el("div", { class: "st", text: tr("web_step3") }))));
+      }
+      out.push(tg("web_follow"));
+      const list = el("div", { class: "acct-list" });
+      for (const a of S.accounts) {
+        const here = w.account === a.name, has = webHas(a.name);
+        list.append(el("div", { class: "acct-item web-item" },
+          avatar(a, "sm"),
+          el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email }),
+          el("span", { class: "chip" + (here ? " live" : has ? "" : " off"), text: here ? tr("web_here") : has ? tr("web_saved") : tr("web_none") }),
+          webCan(a) ? el("button", { class: "btn", type: "button", onclick: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) }, icon("swap"), tr("web_switch"))
+            : el("button", { class: "btn" + (has ? "" : " ink"), type: "button", disabled: !w.connected || here, onclick: () => act(() => call("web.login", { account: a.name }), tr("web_login_sent")) }, icon("key"), tr("web_login"))));
+      }
+      out.push(row("web_accounts", list, { stack: true }));
+      out.push(el("p", { class: "muted small", text: tr("web_cic_note") }));
+      return out;
     },
     resume: () => {
       const ta = el("textarea", { rows: 2, placeholder: S.default_message });
@@ -883,6 +931,7 @@ function openSettings(startTab = "switch", focusKeys = []) {
   flashKeys = [];
   if (focusKeys.length) setTimeout(() => { const r = shell.querySelector(`[data-key="${focusKeys[0]}"]`); if (r) r.scrollIntoView({ block: "center", behavior: "smooth" }); }, 80);
   settingsRepaint = paint;
+  settingsTabNow = () => tab;
 }
 
 // ---------- render loop ----------
@@ -913,6 +962,9 @@ function render(force, pageChanged) {
     main.scrollTop = pageChanged ? 0 : scroll;
   }
   renderLogin();
+  // The browser pane follows the extension's state live.
+  const wj = JSON.stringify(S.web || {});
+  if (wj !== lastWeb) { lastWeb = wj; if (settingsRepaint && settingsTabNow && settingsTabNow() === "browser") settingsRepaint(); }
   const ready = (S.resume || []).filter((e) => e.state === "ready").length;
   if (ready > lastReady) {
     if (page !== "sessions") go("sessions");
