@@ -97,9 +97,12 @@ function el(tag, attrs = {}, ...kids) {
 }
 const fill = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
-const fmtWhen = (iso) => {
-  const d = new Date(iso);
-  return d.toDateString() === new Date().toDateString() ? fmtTime(d) : d.toLocaleString(lang, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+// A coming time: the hour today, the weekday and hour within a week, else the date and hour.
+const fmtWhen = (when) => {
+  const d = new Date(when);
+  if (d.toDateString() === new Date().toDateString()) return fmtTime(d);
+  if (d - Date.now() < 6 * 86400000) return d.toLocaleString(lang, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(lang, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 };
 const fmtDate = (iso) => new Date(iso).toLocaleDateString(lang, { day: "numeric", month: "long", year: "numeric" });
 const acct = (id) => ((S && S.accounts) || []).find((a) => a.name === id);
@@ -468,7 +471,7 @@ function renderAccounts(root) {
     // Where each Claude is (Claude Code, claude.ai, Claude in Chrome) shows as icons, top right.
     const badges = a.place === "signed_out" ? [el("span", { class: "badge", text: tr("signed_out") })] : [];
     if (plan(a)) badges.push(el("span", { text: plan(a) }));
-    if (a.exhausted && a.exhausted.until_ms > Date.now()) badges.push(el("span", { class: "badge warn", text: tr("until", { t: fmtTime(a.exhausted.until_ms) }) }));
+    if (a.exhausted && a.exhausted.until_ms > Date.now()) badges.push(el("span", { class: "badge warn", text: tr("until", { t: fmtWhen(a.exhausted.until_ms) }) }));
     if (!rot.includes(a.name)) badges.push(el("span", { text: tr("out_rot") }));
     const more = el("button", { class: "icon-btn more", type: "button", "aria-label": "Menu" }, icon("moreV"));
     more.addEventListener("click", (ev) => {
@@ -1175,7 +1178,7 @@ function render(force, pageChanged) {
   renderBar();
   if (langChanged) { moveTabIndicator(false); document.getElementById("legal").textContent = tr("disclaimer"); }
   if (S.observe_only) banner(tr("b_observe"));
-  else if (S.waiting_return) banner(tr("b_all_out", { a: lab(S.waiting_return[0]), t: fmtTime(S.waiting_return[1]) }), true);
+  else if (S.waiting_return) banner(tr("b_all_out", { a: lab(S.waiting_return[0]), t: fmtWhen(S.waiting_return[1]) }), true);
   else banner("");
   const main = document.getElementById("page");
   const typing = main.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
