@@ -140,13 +140,14 @@ main { flex: 1; overflow: auto; }
 .toggle input:disabled + .tg { opacity: .4; }
 
 /* Account cards */
-.cards { display: grid; grid-template-columns: var(--cols, repeat(var(--n, 3), minmax(0, 1fr))); gap: 20px; align-items: stretch; padding-block: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 20px; align-items: stretch; padding-block: 8px; }
+.cards.one { grid-template-columns: minmax(0, 560px); }
 .card { --hue: var(--ink-2); --surface: var(--card-lo); background: var(--surface); border-radius: 24px; box-shadow: none;
   position: relative; z-index: 1; transform: translateY(0) scale(1);
   transition: transform .28s cubic-bezier(.2, .8, .2, 1), box-shadow .28s cubic-bezier(.2, .8, .2, 1), background .25s; padding: 26px 26px 22px; display: flex; flex-direction: column; gap: 26px; min-width: 0; }
 /* The active account: a brighter surface with a soft lift and a solid badge; the others step back
    (muted text and initial; bars and buttons keep their colour). */
-.card.active { --surface: var(--card-hi); box-shadow: var(--lift); padding: 34px 32px 30px; border-radius: 28px; margin-block: -16px; }
+.card.active { --surface: var(--card-hi); box-shadow: var(--lift), inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 35%, transparent); }
 /* Hover: the card rises a little towards the viewer, its shadow grows with it. */
 .card:hover { transform: translateY(-4px) scale(1.012); box-shadow: var(--lift-hover); }
 .card.active .c-name { font-size: 17.5px; }
@@ -163,7 +164,7 @@ main { flex: 1; overflow: auto; }
 .badge.live { background: var(--accent); color: var(--on-accent); gap: 6px; padding: 0 11px 0 9px; }
 .badge.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, var(--on-accent) 25%, transparent); }
 .badge.warn { background: var(--stop-soft); color: var(--stop); }
-.c-head .icon-btn { align-self: start; margin: -6px -10px 0 0; }
+.c-head .icon-btn { align-self: start; }
 .c-body { display: grid; gap: 22px; }
 .c-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; }
 .c-foot .muted { font-size: 13px; white-space: nowrap; }
@@ -494,3 +495,19 @@ input.bad { box-shadow: 0 0 0 2px var(--stop) !important; }
 .head-actions .toggle { margin-right: 4px; }
 svg.brand { fill: currentColor; stroke: none; }
 .toggle.auto .knob svg.brand { width: 12px; height: 12px; }
+
+/* Where each Claude is, top right of a card */
+.c-top { display: flex; align-items: center; gap: 2px; align-self: start; margin: -6px -10px 0 0; }
+.where { display: flex; gap: 2px; }
+.where-btn { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 10px; background: none; color: var(--ink-3); cursor: pointer; opacity: .6; transition: background .15s, color .15s, opacity .15s; }
+.where-btn svg { width: 16px; height: 16px; }
+.where-btn:hover:not(:disabled):not(.on) { opacity: 1; background: var(--soft); color: var(--ink); }
+.where-btn.on { opacity: 1; color: var(--accent); background: var(--accent-soft); cursor: default; }
+.where-btn:disabled:not(.on) { opacity: .25; cursor: default; }
+/* Switch confirmation */
+.sw-list { display: grid; gap: 8px; }
+.sw-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-radius: 16px; background: var(--soft); }
+.sw-row.off { opacity: .55; }
+.sw-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--card); color: var(--accent); }
+.sw-mark svg { width: 16px; height: 16px; }
+.sw-label { font-weight: 500; }

@@ -22,6 +22,8 @@ pub type Reply = Sender<Result<Value, String>>;
 pub enum Cmd {
     Switch {
         to: String,
+        /// Whether claude.ai and Claude in Chrome follow this switch (None: the settings decide).
+        follow: Option<(bool, bool)>,
         reply: Reply,
     },
     Reread {
@@ -137,6 +139,7 @@ pub struct Daemon {
     update_busy: Arc<std::sync::atomic::AtomicBool>,
     update_tried_ms: i64,
     a11y_checked_ms: i64,
+    follow_override: Option<(bool, bool)>,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -281,6 +284,7 @@ impl Daemon {
             web: Default::default(),
             update_tried_ms: 0,
             a11y_checked_ms: 0,
+            follow_override: None,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1171,10 +1175,12 @@ impl Daemon {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
-            Cmd::Switch { to, reply } => {
+            Cmd::Switch { to, follow, reply } => {
+                self.follow_override = follow;
                 let r = self
                     .do_switch(&to, "manual", true)
                     .map_err(|e| format!("{e:#}"));
+                self.follow_override = None;
                 let _ = reply.send(r);
             }
             Cmd::Reread { reply } => {
@@ -1242,7 +1248,9 @@ impl Daemon {
 
     /// After Claude Code switched: claude.ai in the browser follows, when the Connector is there.
     fn web_follow(&mut self, to: &str) {
-        let (web, cic) = (self.settings.web_follow, self.settings.cic_follow);
+        let (web, cic) = self
+            .follow_override
+            .unwrap_or((self.settings.web_follow, self.settings.cic_follow));
         if !web && !cic {
             return;
         }

@@ -194,7 +194,14 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 .and_then(Value::as_str)
                 .context("switch needs 'to'")?
                 .to_string();
-            ask(ctx, |reply| Cmd::Switch { to, reply }, long)
+            let follow = match (
+                p.get("web").and_then(Value::as_bool),
+                p.get("cic").and_then(Value::as_bool),
+            ) {
+                (None, None) => None,
+                (w, c) => Some((w.unwrap_or(false), c.unwrap_or(false))),
+            };
+            ask(ctx, |reply| Cmd::Switch { to, follow, reply }, long)
         }
         "reread" => ask(ctx, |reply| Cmd::Reread { reply }, long),
         "resume.send" => {
