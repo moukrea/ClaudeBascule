@@ -86,6 +86,7 @@ const I18N = {
     guide_alt: "Without the extension, Claude Bascule can also drive Chrome itself (remote debugging):",
     ax_title: "Unattended (accessibility)", ax_off: "Off: Chrome must start with its accessibility on.", ax_restart: "Ready on Claude Bascule's side: restart Chrome once.", ax_ready: "On: Claude in Chrome moves on its own, without any prompt, even after a restart.", ax_prepare: "Prepare Chrome", ax_prepared: "Done: restart Chrome once", ax_help: "Claude Bascule presses Claude in Chrome's buttons through the desktop's accessibility, like a screen reader (no screen reader is started). Needs the browser extension for claude.ai's sessions.",
     where_cli_on: "Claude Code uses this account", where_cli_off: "Switch Claude Code here", where_cli_signed_out: "Not signed in yet", where_web_on: "claude.ai uses this account", where_web_off: "Switch claude.ai here", where_cic_on: "Claude in Chrome uses this account", where_cic_off: "Switch Claude in Chrome here", sw_cli: "Claude Code", sw_here: "already here",
+    hidden_one: "1 disabled account", hidden_other: "{n} disabled accounts", show_hidden: "Show", hide_hidden: "Hide",
   },
   fr: {
     tab_accounts: "Comptes", tab_sessions: "Sessions", tab_journal: "Journal",
@@ -171,6 +172,7 @@ const I18N = {
     guide_alt: "Sans extension, Claude Bascule peut aussi piloter Chrome lui-même (débogage à distance) :",
     ax_title: "Sans intervention (accessibilité)", ax_off: "Désactivé : Chrome doit démarrer avec son accessibilité active.", ax_restart: "Prêt côté Claude Bascule : relancez Chrome une fois.", ax_ready: "Actif : Claude in Chrome bascule toute seule, sans aucune demande, même après un redémarrage.", ax_prepare: "Préparer Chrome", ax_prepared: "C'est fait : relancez Chrome une fois", ax_help: "Claude Bascule appuie sur les boutons de Claude in Chrome via l'accessibilité du système, comme un lecteur d'écran (aucun lecteur d'écran n'est lancé). Nécessite l'extension du navigateur pour les sessions claude.ai.",
     where_cli_on: "Claude Code utilise ce compte", where_cli_off: "Basculer Claude Code ici", where_cli_signed_out: "Pas encore connecté", where_web_on: "claude.ai utilise ce compte", where_web_off: "Basculer claude.ai ici", where_cic_on: "Claude in Chrome utilise ce compte", where_cic_off: "Basculer Claude in Chrome ici", sw_cli: "Claude Code", sw_here: "déjà ici",
+    hidden_one: "1 compte désactivé", hidden_other: "{n} comptes désactivés", show_hidden: "Afficher", hide_hidden: "Masquer",
   },
   de: {
     tab_accounts: "Konten", tab_sessions: "Sitzungen", tab_journal: "Protokoll",
@@ -256,6 +258,7 @@ const I18N = {
     guide_alt: "Ohne Erweiterung kann Claude Bascule Chrome auch selbst steuern (Remote-Debugging):",
     ax_title: "Ohne Eingriff (Barrierefreiheit)", ax_off: "Aus: Chrome muss mit aktivierter Barrierefreiheit starten.", ax_restart: "Bei Claude Bascule bereit: Chrome einmal neu starten.", ax_ready: "Aktiv: Claude in Chrome wechselt von selbst, ohne Nachfrage, auch nach einem Neustart.", ax_prepare: "Chrome vorbereiten", ax_prepared: "Erledigt: Chrome einmal neu starten", ax_help: "Claude Bascule drückt die Schaltflächen von Claude in Chrome über die Barrierefreiheit des Systems, wie ein Screenreader (es wird kein Screenreader gestartet). Benötigt die Browsererweiterung für die claude.ai-Sitzungen.",
     where_cli_on: "Claude Code nutzt dieses Konto", where_cli_off: "Claude Code hierher wechseln", where_cli_signed_out: "Noch nicht angemeldet", where_web_on: "claude.ai nutzt dieses Konto", where_web_off: "claude.ai hierher wechseln", where_cic_on: "Claude in Chrome nutzt dieses Konto", where_cic_off: "Claude in Chrome hierher wechseln", sw_cli: "Claude Code", sw_here: "bereits hier",
+    hidden_one: "1 deaktiviertes Konto", hidden_other: "{n} deaktivierte Konten", show_hidden: "Anzeigen", hide_hidden: "Ausblenden",
   },
   es: {
     tab_accounts: "Cuentas", tab_sessions: "Sesiones", tab_journal: "Registro",
@@ -341,6 +344,7 @@ const I18N = {
     guide_alt: "Sin extensión, Claude Bascule también puede controlar Chrome por sí mismo (depuración remota):",
     ax_title: "Sin intervención (accesibilidad)", ax_off: "Desactivado: Chrome debe iniciarse con la accesibilidad activada.", ax_restart: "Listo en Claude Bascule: reinicia Chrome una vez.", ax_ready: "Activo: Claude in Chrome cambia sola, sin ninguna petición, incluso tras un reinicio.", ax_prepare: "Preparar Chrome", ax_prepared: "Hecho: reinicia Chrome una vez", ax_help: "Claude Bascule pulsa los botones de Claude in Chrome mediante la accesibilidad del sistema, como un lector de pantalla (no se inicia ningún lector de pantalla). Necesita la extensión del navegador para las sesiones de claude.ai.",
     where_cli_on: "Claude Code usa esta cuenta", where_cli_off: "Cambiar Claude Code aquí", where_cli_signed_out: "Sin sesión todavía", where_web_on: "claude.ai usa esta cuenta", where_web_off: "Cambiar claude.ai aquí", where_cic_on: "Claude in Chrome usa esta cuenta", where_cic_off: "Cambiar Claude in Chrome aquí", sw_cli: "Claude Code", sw_here: "ya aquí",
+    hidden_one: "1 cuenta desactivada", hidden_other: "{n} cuentas desactivadas", show_hidden: "Mostrar", hide_hidden: "Ocultar",
   },
   it: {
     tab_accounts: "Account", tab_sessions: "Sessioni", tab_journal: "Registro",
@@ -426,6 +430,7 @@ const I18N = {
     guide_alt: "Senza estensione, Claude Bascule può anche controllare Chrome da sé (debug remoto):",
     ax_title: "Senza intervento (accessibilità)", ax_off: "Disattivato: Chrome deve avviarsi con l'accessibilità attiva.", ax_restart: "Pronto lato Claude Bascule: riavvia Chrome una volta.", ax_ready: "Attivo: Claude in Chrome cambia da sola, senza richieste, anche dopo un riavvio.", ax_prepare: "Prepara Chrome", ax_prepared: "Fatto: riavvia Chrome una volta", ax_help: "Claude Bascule preme i pulsanti di Claude in Chrome tramite l'accessibilità del sistema, come uno screen reader (nessuno screen reader viene avviato). Serve l'estensione del browser per le sessioni claude.ai.",
     where_cli_on: "Claude Code usa questo account", where_cli_off: "Passa Claude Code qui", where_cli_signed_out: "Non ancora collegato", where_web_on: "claude.ai usa questo account", where_web_off: "Passa claude.ai qui", where_cic_on: "Claude in Chrome usa questo account", where_cic_off: "Passa Claude in Chrome qui", sw_cli: "Claude Code", sw_here: "già qui",
+    hidden_one: "1 account disattivato", hidden_other: "{n} account disattivati", show_hidden: "Mostra", hide_hidden: "Nascondi",
   },
   pt: {
     tab_accounts: "Contas", tab_sessions: "Sessões", tab_journal: "Registo",
@@ -511,6 +516,7 @@ const I18N = {
     guide_alt: "Sem extensão, o Claude Bascule também pode controlar o Chrome sozinho (depuração remota):",
     ax_title: "Sem intervenção (acessibilidade)", ax_off: "Desativado: o Chrome tem de arrancar com a acessibilidade ativa.", ax_restart: "Pronto do lado do Claude Bascule: reinicie o Chrome uma vez.", ax_ready: "Ativo: o Claude in Chrome troca sozinho, sem qualquer pedido, mesmo após reiniciar.", ax_prepare: "Preparar o Chrome", ax_prepared: "Feito: reinicie o Chrome uma vez", ax_help: "O Claude Bascule carrega nos botões do Claude in Chrome através da acessibilidade do sistema, como um leitor de ecrã (nenhum leitor de ecrã é iniciado). Precisa da extensão do navegador para as sessões do claude.ai.",
     where_cli_on: "O Claude Code usa esta conta", where_cli_off: "Trocar o Claude Code para aqui", where_cli_signed_out: "Ainda sem sessão", where_web_on: "O claude.ai usa esta conta", where_web_off: "Trocar o claude.ai para aqui", where_cic_on: "O Claude in Chrome usa esta conta", where_cic_off: "Trocar o Claude in Chrome para aqui", sw_cli: "Claude Code", sw_here: "já aqui",
+    hidden_one: "1 conta desativada", hidden_other: "{n} contas desativadas", show_hidden: "Mostrar", hide_hidden: "Ocultar",
   },
 };
 const LANG_NAMES = { en: "English", fr: "Français", de: "Deutsch", es: "Español", it: "Italiano", pt: "Português" };
