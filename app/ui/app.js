@@ -25,6 +25,8 @@ const ICON = {
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   smile: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01",
   pencil: "M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z",
+  terminal: "M4 17l6-6-6-6M12 19h8",
+  moreV: "M12 5h.01M12 12h.01M12 19h.01",
   puzzle: "M10 4a2 2 0 1 1 4 0v1h4a1 1 0 0 1 1 1v4h1a2 2 0 1 1 0 4h-1v4a1 1 0 0 1-1 1h-4v-1a2 2 0 1 0-4 0v1H6a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H5V6a1 1 0 0 1 1-1h4z",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10z",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
@@ -190,7 +192,9 @@ async function syncMaximized() {
     document.body.classList.toggle("max", m);
   } catch { /* outside Tauri */ }
 }
-try { win().onResized(() => { syncMaximized(); moveTabIndicator(false); }); } catch { /* outside Tauri */ }
+let resizeTimer = null;
+try { win().onResized(() => { syncMaximized(); moveTabIndicator(false); clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (S && page === "accounts") render(true); }, 150); }); } catch { /* outside Tauri */ }
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (S && page === "accounts") render(true); }, 150); });
 syncMaximized();
 window.addEventListener("focus", () => frame.classList.remove("unfocused"));
 window.addEventListener("blur", () => frame.classList.add("unfocused"));
@@ -447,8 +451,13 @@ function renderAccounts(root) {
     return;
   }
   // One account: a card of normal width rather than one stretched over the window.
-  const cols = S.accounts.length === 1 ? "minmax(0, 560px)" : orderedAccounts().map((x) => (x.place === "active" ? "minmax(0, 1.12fr)" : "minmax(0, 1fr)")).join(" ");
-  const cards = el("div", { class: "cards", style: `--n:${Math.min(4, S.accounts.length)};--cols:${cols}` });
+  // Cards wrap onto more lines rather than getting too narrow, in balanced rows (4 → 2 × 2).
+  const n = S.accounts.length;
+  const width = Math.max(320, (document.getElementById("page").clientWidth || 1000) - 56);
+  const fit = Math.max(1, Math.floor((width + 20) / (290 + 20)));
+  const rows = Math.ceil(n / Math.min(n, fit));
+  const cols = Math.ceil(n / rows);
+  const cards = el("div", { class: "cards" + (n === 1 ? " one" : ""), style: n > 1 ? `grid-template-columns: repeat(${cols}, minmax(0, 1fr))` : "" });
   const rot = rotationOf(st);
   const sessions = (S.sessions || []).length;
   for (const a of orderedAccounts()) {
@@ -456,14 +465,12 @@ function renderAccounts(root) {
     const wins = (a.usage && a.usage.windows) || [];
     const find = (n) => wins.find((w) => w.name === n);
     const is20x = /max_20x/.test(a.tier || "");
-    const badges = [active ? el("span", { class: "badge live", text: tr("in_service") }) : el("span", { class: "badge", text: a.place === "resting" ? tr("resting") : tr("signed_out") })];
+    // Where each Claude is (Claude Code, claude.ai, Claude in Chrome) shows as icons, top right.
+    const badges = a.place === "signed_out" ? [el("span", { class: "badge", text: tr("signed_out") })] : [];
     if (plan(a)) badges.push(el("span", { text: plan(a) }));
     if (a.exhausted && a.exhausted.until_ms > Date.now()) badges.push(el("span", { class: "badge warn", text: tr("until", { t: fmtTime(a.exhausted.until_ms) }) }));
     if (!rot.includes(a.name)) badges.push(el("span", { text: tr("out_rot") }));
-    const web = S.web || {};
-    if (webOn() && web.account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("web_here_tip") }, brandIcon("claude"), "claude.ai"));
-    if (webOn() && web.cic_account === a.name) badges.push(el("span", { class: "badge web", "data-tip": tr("cic_here_tip") }, icon("puzzle"), "Claude in Chrome"));
-    const more = el("button", { class: "icon-btn", type: "button", "aria-label": "Menu" }, icon("more"));
+    const more = el("button", { class: "icon-btn more", type: "button", "aria-label": "Menu" }, icon("moreV"));
     more.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const inRot = rot.includes(a.name);
@@ -488,7 +495,7 @@ function renderAccounts(root) {
     const head = el("div", { class: "c-head" },
       avatar(a),
       el("div", { class: "c-id" }, el("div", { class: "c-name ellipsis", text: a.label, "data-tip": a.label, "data-tip-sub": tipSub || null, ondblclick: () => openRename(a) }), el("div", { class: "c-state" }, badges)),
-      more);
+      el("div", { class: "c-top" }, whereIcons(a), more));
     const body = el("div", { class: "c-body" },
       meter(tr("w_five_hour"), find("five_hour"), thresholdFor("five_hour"), is20x ? tr("na") : a.usage ? tr("not_running") : tr("not_read")),
       meter(tr("w_seven_day"), find("seven_day"), thresholdFor("seven_day"), a.usage ? tr("not_running") : tr("not_read")),
@@ -514,10 +521,49 @@ function usageError(e) {
   if (/HTTP 40[13]|no token/.test(e)) return tr("err_auth");
   return tr("err_network");
 }
+// The three places an account can be in use, as icons in the card's top right corner: lit where
+// it is, grey elsewhere (a click moves that one there at once), absent where it cannot go.
+function whereIcons(a) {
+  const w = S.web || {};
+  const items = [
+    { mark: icon("terminal"), on: a.place === "active", can: a.place === "resting",
+      onTip: tr("where_cli_on"), offTip: a.place === "signed_out" ? tr("where_cli_signed_out") : tr("where_cli_off"),
+      go: () => act(() => call("switch", { to: a.name, web: false, cic: false }), tr("switched", { a: a.label })) },
+    webOn() && (webHas(a.name) || w.account === a.name) ? { mark: brandIcon("claude"), on: w.account === a.name, can: webCan(a),
+      onTip: tr("where_web_on"), offTip: tr("where_web_off"),
+      go: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) } : null,
+    webOn() && (webHas(a.name) || w.cic_account === a.name) ? { mark: icon("puzzle"), on: w.cic_account === a.name, can: cicCan(a),
+      onTip: tr("where_cic_on"), offTip: tr("where_cic_off"),
+      go: () => startCic(a) } : null,
+  ].filter(Boolean);
+  return el("div", { class: "where" }, items.map((it) => el("button", {
+    class: "where-btn" + (it.on ? " on" : ""), type: "button", disabled: !it.on && !it.can,
+    "data-tip": it.on ? it.onTip : it.offTip, "aria-label": it.on ? it.onTip : it.offTip,
+    onclick: (e) => { e.stopPropagation(); if (!it.on && it.can) it.go(); } }, it.mark)));
+}
+// Switching to an account by hand: Claude Code, claude.ai and Claude in Chrome, each on or off.
 function confirmSwitch(a) {
-  modal({ title: tr("switch_title", { a: a.label }), body: el("p", { text: tr("switch_body") }), actions: [
+  const w = S.web || {};
+  const rows = [{ key: "cli", mark: icon("terminal"), label: tr("sw_cli"), here: a.place === "active", can: a.place === "resting" }];
+  if (webOn() && webHas(a.name)) {
+    rows.push({ key: "web", mark: brandIcon("claude"), label: "claude.ai", here: w.account === a.name, can: webCan(a) });
+    rows.push({ key: "cic", mark: icon("puzzle"), label: "Claude in Chrome", here: w.cic_account === a.name, can: cicCan(a) });
+  }
+  const on = Object.fromEntries(rows.map((r) => [r.key, r.can]));
+  const list = el("div", { class: "sw-list" }, rows.map((r) => el("div", { class: "sw-row" + (r.can || r.here ? "" : " off") },
+    el("span", { class: "sw-mark" }, r.mark), el("span", { class: "sw-label", text: r.label }),
+    r.here ? el("span", { class: "chip live", text: tr("sw_here") })
+      : toggle({ checked: r.can, disabled: !r.can, onChange: (v) => { on[r.key] = v; } }))));
+  modal({ title: tr("switch_title", { a: a.label }), body: el("div", { class: "form" }, el("p", { text: tr("switch_body") }), list), actions: [
     { label: tr("cancel"), onClick: (m) => m.close() },
-    { label: tr("switch_go"), primary: true, icon: "swap", onClick: (m) => { m.close(); act(() => call("switch", { to: a.name }), tr("switched", { a: a.label })); } },
+    { label: tr("switch_go"), primary: true, icon: "swap", onClick: (m) => {
+      m.close();
+      if (on.cli) act(() => call("switch", { to: a.name, web: !!on.web, cic: !!on.cic }), tr("switched", { a: a.label }));
+      else {
+        if (on.web) act(() => call("web.switch", { to: a.name }), tr("web_switch_sent"));
+        if (on.cic) startCic(a);
+      }
+    } },
   ] });
 }
 // A display name for an account (shown instead of its address); empty = the address.
@@ -1006,6 +1052,16 @@ function openSettings(startTab = "switch", focusKeys = []) {
         out.push(el("div", {}, el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); openBrowserGuide(); } }, icon("globe"), tr("guide_title"))));
       }
       out.push(tg("web_follow"), tg("cic_follow"));
+      // Unattended moves through Chrome's accessibility (Linux): the recommended way.
+      const ax = w.a11y || "unsupported";
+      if (ax !== "unsupported") {
+        const axText = ax === "ready" ? tr("ax_ready") : ax === "restart" ? tr("ax_restart") : tr("ax_off");
+        out.push(el("div", { class: "about cdp" },
+          el("div", { class: "web-ico" + (ax === "ready" ? " on" : "") }, icon("puzzle")),
+          el("div", {}, el("div", { class: "about-name", text: tr("ax_title") }), el("div", { class: "about-st" + (ax === "ready" ? " hot" : ""), text: axText }),
+            el("div", { class: "muted small", text: tr("ax_help") })),
+          el("div", { class: "about-act" }, ax === "off" ? el("button", { class: "btn ink", type: "button", onclick: () => act(() => call("a11y.prepare"), tr("ax_prepared")) }, icon("check"), tr("ax_prepare")) : null)));
+      }
       const cs = w.cdp || "off";
       const csText = cs === "off" ? tr("cdp_off") : cs === "available" ? tr("cdp_available") : cs === "connecting" ? tr("cdp_connecting") : cs === "connected" ? tr("cdp_connected") : tr("cdp_error", { e: cs });
       out.push(el("div", { class: "about cdp" },

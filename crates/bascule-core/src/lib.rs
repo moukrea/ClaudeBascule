@@ -1,5 +1,6 @@
 //! Bascule core: vault and switch, quotas, jaunt service client, settings, observer.
 
+pub mod a11y;
 pub mod cdp;
 pub mod config;
 pub mod control;

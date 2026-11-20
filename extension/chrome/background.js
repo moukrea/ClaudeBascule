@@ -88,11 +88,14 @@ async function clearSession() {
 
 async function setCookies(list) {
   for (const c of list) {
+    // A cookie Chrome refuses must not stop the others (nor be silent).
     const d = { url: urlOf(c), name: c.name, value: c.value, path: c.path || "/", secure: !!c.secure, httpOnly: !!c.httpOnly };
     if (!c.hostOnly) d.domain = c.domain;
     if (c.sameSite && c.sameSite !== "unspecified") d.sameSite = c.sameSite;
     if (!c.session && c.expirationDate) d.expirationDate = c.expirationDate;
-    await chrome.cookies.set(d);
+    if (d.sameSite === "no_restriction") d.secure = true;
+    const r = await chrome.cookies.set(d).catch((e) => null);
+    if (!r) rpc("web.result", { ok: false, to: null, error: `cookie ${c.name} refused: ${chrome.runtime.lastError ? chrome.runtime.lastError.message : "?"}` }).catch(() => {});
   }
 }
 
@@ -121,8 +124,14 @@ async function handle(cmd) {
       applying = false;
     }
     rpc("web.result", { ok, to: cmd.to, error }).catch(() => {});
+  } else if (cmd.type === "reload") {
+    chrome.runtime.reload();
   } else if (cmd.type === "cic_begin") {
-    await cicBegin(cmd);
+    try {
+      await cicBegin(cmd);
+    } catch (e) {
+      rpc("web.result", { ok: false, to: cmd.to, error: "Claude in Chrome move: " + e }).catch(() => {});
+    }
   } else if (cmd.type === "cic_stop") {
     cic = null;
   } else if (cmd.type === "login") {
@@ -145,6 +154,8 @@ const CIC_CLIENT = "dae2cad8-15c5-43d2-9046-fcaecc135fa4";
 let cic = null; // { id, authTab }
 
 async function cicBegin(cmd) {
+  // Sign-in pages left over from an earlier attempt would hide the options page.
+  for (const t of await chrome.tabs.query({ url: "https://claude.ai/oauth/authorize*" })) chrome.tabs.remove(t.id).catch(() => {});
   try {
     await capture();
     applying = true;
@@ -157,7 +168,8 @@ async function cicBegin(cmd) {
   cic = { id: cmd.id, authTab: null };
   setTimeout(capture, 1500);
   try {
-    await chrome.tabs.create({ url: `chrome-extension://${CIC_ID}/options.html`, active: true });
+    const tab = await chrome.tabs.create({ url: `chrome-extension://${CIC_ID}/options.html`, active: true });
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
   } catch (e) {
     // Not installed, or the browser refuses: the window explains what to open.
   }

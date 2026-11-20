@@ -322,6 +322,24 @@ impl Cdp {
         }
     }
 
+    /// The keeper's connection when it already runs (never starts one: that would make Chrome ask).
+    pub fn existing(paths: &crate::paths::Paths) -> Option<Cdp> {
+        let (sock, json_file) = keeper_paths(paths);
+        let ep = crate::platform::connect(&sock, &json_file).ok()?;
+        let stream = ep.stream;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(90)))
+            .ok()?;
+        let mut c = Cdp {
+            reader: std::io::BufReader::new(stream.try_clone().ok()?),
+            stream,
+            key: ep.key,
+            next: 0,
+        };
+        c.call("Browser.getVersion", json!({}), None).ok()?;
+        Some(c)
+    }
+
     pub fn connect() -> Result<Cdp> {
         Cdp::connect_with(&crate::paths::Paths::from_env())
     }

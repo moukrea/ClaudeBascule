@@ -131,6 +131,8 @@ pub struct WebHub {
     /// "off" (remote debugging not allowed), "available", "connecting", "connected", or an error.
     pub cdp: Arc<Mutex<Option<crate::cdp::Cdp>>>,
     pub cdp_state: String,
+    /// Chrome's accessibility for unattended moves (see a11y): "unsupported", "off", "restart", "ready".
+    pub a11y_state: String,
 }
 
 /// Moving Claude in Chrome to `to`: claude.ai carries `to`'s session while the user signs the
@@ -404,11 +406,55 @@ pub fn start_cic(
     keep_web: bool,
     now_ms: i64,
 ) -> Result<String> {
-    if crate::cdp::endpoint().is_none() {
+    // Without a connection Chrome already allowed, accessibility moves it unattended (Linux),
+    // else the user is guided. Opening a new DevTools connection would make Chrome ask.
+    let cdp_ready = {
+        let handle = web.lock().unwrap().cdp.clone();
+        let mut g = handle.lock().unwrap();
+        if g.as_mut().is_some_and(|c| c.alive()) {
+            true
+        } else if let Some(c) = crate::cdp::Cdp::existing(paths) {
+            *g = Some(c);
+            true
+        } else {
+            false
+        }
+    };
+    if !cdp_ready {
+        let (extension, a11y) = {
+            let hub = web.lock().unwrap();
+            (hub.connected(now_ms), hub.a11y_state == "ready")
+        };
         web.lock()
             .unwrap()
             .push_cic(paths, name, keep_web, now_ms)?;
-        return Ok("guided".into());
+        if !(extension && a11y) {
+            return Ok("guided".into());
+        }
+        let email = load(paths, name).map(|s| s.email).unwrap_or_default();
+        let id = {
+            let mut hub = web.lock().unwrap();
+            let f = hub.cic_flow.as_mut().context("no move")?;
+            f.mode = "auto".into();
+            f.stage = "working".into();
+            f.id
+        };
+        let (web, paths) = (web.clone(), paths.clone());
+        std::thread::spawn(move || {
+            // The extension puts claude.ai on the account and opens Claude in Chrome's options.
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let r = crate::a11y::resign_cic(&email);
+            let mut hub = web.lock().unwrap();
+            if hub
+                .cic_flow
+                .as_ref()
+                .is_some_and(|f| f.id == id && f.stage == "working")
+            {
+                hub.queue.push_back(json!({"type": "cic_stop"}));
+                hub.end_cic(&paths, r.is_ok(), r.err().map(|e| format!("{e:#}")));
+            }
+        });
+        return Ok("auto".into());
     }
     {
         let mut hub = web.lock().unwrap();

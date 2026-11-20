@@ -194,7 +194,14 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 .and_then(Value::as_str)
                 .context("switch needs 'to'")?
                 .to_string();
-            ask(ctx, |reply| Cmd::Switch { to, reply }, long)
+            let follow = match (
+                p.get("web").and_then(Value::as_bool),
+                p.get("cic").and_then(Value::as_bool),
+            ) {
+                (None, None) => None,
+                (w, c) => Some((w.unwrap_or(false), c.unwrap_or(false))),
+            };
+            ask(ctx, |reply| Cmd::Switch { to, follow, reply }, long)
         }
         "reread" => ask(ctx, |reply| Cmd::Reread { reply }, long),
         "resume.send" => {
@@ -335,6 +342,16 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             hub.seen_ms = now_ms();
             hub.browser = p.get("browser").and_then(Value::as_str).map(str::to_string);
             hub.version = p.get("version").and_then(Value::as_str).map(str::to_string);
+            // An unpacked extension keeps running its old code after an update: reload it.
+            let installed = crate::platform::extension_dir()
+                .and_then(|d| std::fs::read_to_string(d.join("manifest.json")).ok())
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .and_then(|m| m.get("version").and_then(Value::as_str).map(str::to_string));
+            if let (Some(have), Some(new)) = (hub.version.clone(), installed) {
+                if crate::update::newer(&new, &have) {
+                    hub.queue.push_back(json!({"type": "reload"}));
+                }
+            }
             Ok(json!({"ok": true}))
         }
         // Long poll from the browser: the next command, or null after `timeout_ms`.
@@ -484,6 +501,12 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             let name = crate::web::cdp_capture(cdp, &ctx.paths, now_ms())?;
             Ok(json!({"account": name}))
         }
+        // Turn Chrome's accessibility on for unattended Claude in Chrome moves (Linux).
+        "a11y.prepare" => {
+            let n = crate::a11y::prepare()?;
+            ctx.web.lock().unwrap().a11y_state = crate::a11y::state();
+            Ok(json!({"launchers": n}))
+        }
         // Connect to Chrome's DevTools now (Chrome asks to allow it), so later moves need nothing.
         "cdp.connect" => {
             let web = ctx.web.clone();
@@ -497,7 +520,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             let error = p.get("error").and_then(Value::as_str).map(str::to_string);
             let mut hub = ctx.web.lock().unwrap();
             let same = hub.cic_flow.as_ref().is_some_and(|f| {
-                f.stage == "waiting"
+                (f.stage == "waiting" || f.stage == "working")
                     && p.get("id")
                         .and_then(Value::as_i64)
                         .is_none_or(|id| id == f.id)
