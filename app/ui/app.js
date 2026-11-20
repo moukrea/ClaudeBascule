@@ -1006,6 +1006,16 @@ function openSettings(startTab = "switch", focusKeys = []) {
         out.push(el("div", {}, el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); openBrowserGuide(); } }, icon("globe"), tr("guide_title"))));
       }
       out.push(tg("web_follow"), tg("cic_follow"));
+      // Unattended moves through Chrome's accessibility (Linux): the recommended way.
+      const ax = w.a11y || "unsupported";
+      if (ax !== "unsupported") {
+        const axText = ax === "ready" ? tr("ax_ready") : ax === "restart" ? tr("ax_restart") : tr("ax_off");
+        out.push(el("div", { class: "about cdp" },
+          el("div", { class: "web-ico" + (ax === "ready" ? " on" : "") }, icon("puzzle")),
+          el("div", {}, el("div", { class: "about-name", text: tr("ax_title") }), el("div", { class: "about-st" + (ax === "ready" ? " hot" : ""), text: axText }),
+            el("div", { class: "muted small", text: tr("ax_help") })),
+          el("div", { class: "about-act" }, ax === "off" ? el("button", { class: "btn ink", type: "button", onclick: () => act(() => call("a11y.prepare"), tr("ax_prepared")) }, icon("check"), tr("ax_prepare")) : null)));
+      }
       const cs = w.cdp || "off";
       const csText = cs === "off" ? tr("cdp_off") : cs === "available" ? tr("cdp_available") : cs === "connecting" ? tr("cdp_connecting") : cs === "connected" ? tr("cdp_connected") : tr("cdp_error", { e: cs });
       out.push(el("div", { class: "about cdp" },

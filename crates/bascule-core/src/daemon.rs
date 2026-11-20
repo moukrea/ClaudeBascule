@@ -136,6 +136,7 @@ pub struct Daemon {
     pub web: Arc<Mutex<crate::web::WebHub>>,
     update_busy: Arc<std::sync::atomic::AtomicBool>,
     update_tried_ms: i64,
+    a11y_checked_ms: i64,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -279,6 +280,7 @@ impl Daemon {
             update_busy: Default::default(),
             web: Default::default(),
             update_tried_ms: 0,
+            a11y_checked_ms: 0,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1279,6 +1281,20 @@ impl Daemon {
         }
     }
 
+    /// Chrome's accessibility state, checked in the background every 30 s.
+    fn a11y_tick(&mut self) {
+        let now = now_ms();
+        if now - self.a11y_checked_ms < 30_000 {
+            return;
+        }
+        self.a11y_checked_ms = now;
+        let web = self.web.clone();
+        std::thread::spawn(move || {
+            let st = crate::a11y::state();
+            web.lock().unwrap().a11y_state = st;
+        });
+    }
+
     /// A Claude in Chrome move waits for the user at most 10 minutes; its outcome shows 30 s.
     fn cic_tick(&mut self) {
         let mut hub = self.web.lock().unwrap();
@@ -1332,7 +1348,7 @@ impl Daemon {
             .map(|a| a.name.as_str())
             .collect();
         json!({"connected": hub.connected(now_ms()), "browser": hub.browser, "version": hub.version,
-            "cic_account": hub.cic_account, "cic_flow": hub.cic_flow, "cdp": cdp_state(&hub),
+            "cic_account": hub.cic_account, "cic_flow": hub.cic_flow, "cdp": cdp_state(&hub), "a11y": hub.a11y_state,
             "account": hub.account, "unknown_email": hub.unknown_email, "last_error": hub.last_error,
             "pending": !hub.queue.is_empty(), "sessions": sessions,
             "extension_dir": crate::platform::extension_dir().map(|p| p.display().to_string())})
@@ -1525,6 +1541,7 @@ impl Daemon {
             self.reload_settings();
             self.update_tick();
             self.cic_tick();
+            self.a11y_tick();
             let notes: Vec<(String, Value)> = self.web.lock().unwrap().notes.drain(..).collect();
             for (kind, data) in notes {
                 self.event(&kind, data);
