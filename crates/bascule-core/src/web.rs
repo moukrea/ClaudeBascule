@@ -228,6 +228,8 @@ impl WebHub {
         if let Some(back) = flow.restore.clone() {
             let _ = self.push_switch(paths, &back);
         }
+        // The pages opened for the move go away.
+        self.queue.push_back(json!({"type": "cic_cleanup"}));
         flow.stage = if ok { "done" } else { "failed" }.into();
         flow.error = error;
         self.notes.push_back((
@@ -428,6 +430,15 @@ pub fn start_cic(
         web.lock()
             .unwrap()
             .push_cic(paths, name, keep_web, now_ms)?;
+        // Chrome does not let an extension open another extension's page: the service opens
+        // Claude in Chrome's options itself, once claude.ai carries the account.
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let _ = crate::platform::open_in_browser(
+                "chrome",
+                &format!("chrome-extension://{}/options.html", crate::cdp::CIC_ID),
+            );
+        });
         if !(extension && a11y) {
             return Ok("guided".into());
         }

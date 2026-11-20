@@ -134,6 +134,12 @@ async function handle(cmd) {
     }
   } else if (cmd.type === "cic_stop") {
     cic = null;
+  } else if (cmd.type === "cic_cleanup") {
+    // Claude in Chrome's options and leftover sign-in pages opened for the move.
+    for (const t of await chrome.tabs.query({})) {
+      const u = t.url || "";
+      if (u.startsWith(`chrome-extension://${CIC_ID}/options.html`) || u.startsWith("https://claude.ai/oauth/authorize")) chrome.tabs.remove(t.id).catch(() => {});
+    }
   } else if (cmd.type === "login") {
     try {
       await capture();
@@ -167,12 +173,7 @@ async function cicBegin(cmd) {
   await reloadClaudeTabs();
   cic = { id: cmd.id, authTab: null };
   setTimeout(capture, 1500);
-  try {
-    const tab = await chrome.tabs.create({ url: `chrome-extension://${CIC_ID}/options.html`, active: true });
-    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
-  } catch (e) {
-    // Not installed, or the browser refuses: the window explains what to open.
-  }
+  // Claude Bascule itself opens Claude in Chrome's options (an extension may not).
 }
 
 function cicFinish(ok, error) {
