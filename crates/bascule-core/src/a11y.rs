@@ -4,7 +4,10 @@
 //! sets once (Chrome's launcher gets `--force-renderer-accessibility`; the session's accessibility
 //! is turned on, without any screen reader).
 
-use anyhow::{bail, Context, Result};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
+use anyhow::{bail, Result};
+#[cfg(target_os = "linux")]
 use serde_json::Value;
 
 #[cfg(target_os = "linux")]
