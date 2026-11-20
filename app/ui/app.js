@@ -355,7 +355,8 @@ function moveTabIndicator(animate = true) {
 let firstBar = true;
 function renderBar() {
   const ready = (S.resume || []).filter((e) => e.state === "ready").length;
-  const counts = { accounts: [S.accounts.length, false], sessions: ready ? [ready, true] : [(S.sessions || []).length, false], journal: null };
+  const rotNow = rotationOf(S.settings || {});
+  const counts = { accounts: [S.accounts.filter((x) => rotNow.includes(x.name) || x.place === "active").length, false], sessions: ready ? [ready, true] : [(S.sessions || []).length, false], journal: null };
   for (const p of PAGES) {
     const c = counts[p];
     fill(tabBtns[p], tr("tab_" + p), c ? el("span", { class: "n" + (c[1] ? " hot" : ""), text: c[0] }) : null);
@@ -405,6 +406,7 @@ function go(p) {
 }
 
 // ---------- accounts ----------
+let showDisabled = store.get("showdisabled", false) === true;
 // A setting toggle showing a mark in its knob, explained by its tooltip (no label).
 function followToggle(key, mark, tip) {
   const input = el("input", { type: "checkbox", role: "switch", checked: !!S.settings[key], "aria-label": tip });
@@ -438,9 +440,10 @@ function meter(name, w, th, offText) {
 let cardZ = 2;
 function renderAccounts(root) {
   const st = S.settings;
+  const live = S.accounts.filter((x) => rotationOf(st).includes(x.name) || x.place === "active").length;
   root.append(el("div", { class: "head" },
     el("div", {}, el("h1", { text: tr("tab_accounts") }),
-      el("div", { class: "sub", text: st.auto_switch && st.anticipate ? trn("accounts_sub_on", S.accounts.length, { p: st.threshold_percent }) : trn("accounts_sub_off", S.accounts.length) })),
+      el("div", { class: "sub", text: st.auto_switch && st.anticipate ? trn("accounts_sub_on", live, { p: st.threshold_percent }) : trn("accounts_sub_off", live) })),
     el("div", { class: "head-actions" },
       webOn() && S.accounts.length ? followToggle("web_follow", brandIcon("claude"), tr("follow_web_tip")) : null,
       webOn() && S.accounts.length ? followToggle("cic_follow", icon("puzzle"), tr("follow_cic_tip")) : null,
@@ -453,17 +456,20 @@ function renderAccounts(root) {
       el("button", { class: "btn ink", type: "button", onclick: openAddAccount }, icon("plus"), tr("add_account"))));
     return;
   }
+  const rot = rotationOf(st);
+  // Accounts taken out of rotation (disabled in the settings) stay off the page unless asked.
+  const disabled = orderedAccounts().filter((x) => !rot.includes(x.name) && x.place !== "active");
+  const shown = orderedAccounts().filter((x) => showDisabled || !disabled.includes(x));
   // One account: a card of normal width rather than one stretched over the window.
   // Cards wrap onto more lines rather than getting too narrow, in balanced rows (4 → 2 × 2).
-  const n = S.accounts.length;
+  const n = Math.max(1, shown.length);
   const width = Math.max(320, (document.getElementById("page").clientWidth || 1000) - 56);
   const fit = Math.max(1, Math.floor((width + 20) / (290 + 20)));
   const rows = Math.ceil(n / Math.min(n, fit));
   const cols = Math.ceil(n / rows);
   const cards = el("div", { class: "cards" + (n === 1 ? " one" : ""), style: n > 1 ? `grid-template-columns: repeat(${cols}, minmax(0, 1fr))` : "" });
-  const rot = rotationOf(st);
   const sessions = (S.sessions || []).length;
-  for (const a of orderedAccounts()) {
+  for (const a of shown) {
     const active = a.place === "active";
     const wins = (a.usage && a.usage.windows) || [];
     const find = (n) => wins.find((w) => w.name === n);
@@ -517,6 +523,10 @@ function renderAccounts(root) {
     cards.append(card);
   }
   root.append(cards);
+  if (disabled.length) {
+    root.append(el("div", { class: "hidden-note" }, el("span", { class: "muted", text: trn("hidden", disabled.length) }),
+      el("button", { class: "btn flat", type: "button", onclick: () => { showDisabled = !showDisabled; store.set("showdisabled", showDisabled); render(true); } }, showDisabled ? tr("hide_hidden") : tr("show_hidden"))));
+  }
 }
 // A quota read failure in plain words; the raw error stays in the tooltip.
 function usageError(e) {

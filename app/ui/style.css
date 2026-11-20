@@ -511,3 +511,4 @@ svg.brand { fill: currentColor; stroke: none; }
 .sw-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--card); color: var(--accent); }
 .sw-mark svg { width: 16px; height: 16px; }
 .sw-label { font-weight: 500; }
+.hidden-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 13px; }
