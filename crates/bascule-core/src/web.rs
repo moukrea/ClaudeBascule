@@ -116,6 +116,10 @@ pub struct WebHub {
     pub seen_ms: i64,
     pub browser: Option<String>,
     pub version: Option<String>,
+    /// A reload was asked of an extension that polled without saying hello (once per service run).
+    pub reload_asked: bool,
+    /// When the browser first polled this service (a fresh extension says hello right away).
+    pub first_poll_ms: i64,
     /// The account claude.ai is signed in with in that browser, None when signed out or unknown.
     pub account: Option<String>,
     /// claude.ai itself named `account` (its email), rather than a guess from the session cookies.

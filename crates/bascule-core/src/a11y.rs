@@ -26,9 +26,11 @@ const ENTRIES: &[&str] = &[
     "vivaldi-stable.desktop",
 ];
 
+/// Run the AT-SPI helper with a deadline: a desktop accessibility bus that stops answering must
+/// not leave helpers piling up.
 #[cfg(target_os = "linux")]
-fn run(args: &[&str]) -> Result<Value> {
-    use std::io::Write;
+fn run(args: &[&str], deadline: std::time::Duration) -> Result<Value> {
+    use std::io::{Read, Write};
     let mut child = std::process::Command::new("python3")
         .arg("-I")
         .arg("-")
@@ -43,22 +45,71 @@ fn run(args: &[&str]) -> Result<Value> {
         .take()
         .context("stdin")?
         .write_all(SCRIPT.as_bytes())?;
-    let out = child.wait_with_output()?;
-    let line = String::from_utf8_lossy(&out.stdout);
-    serde_json::from_str(line.lines().last().unwrap_or(""))
+    let started = std::time::Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        if started.elapsed() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("the desktop's accessibility did not answer in time (restart Chrome, or log out and in)");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let mut out = String::new();
+    if let Some(mut o) = child.stdout.take() {
+        o.read_to_string(&mut out)?;
+    }
+    serde_json::from_str(out.lines().last().unwrap_or(""))
         .context("no answer from the accessibility helper")
 }
 
-/// "unsupported", "off" (not prepared), "restart" (prepared, Chrome not restarted yet), "ready".
+/// "unsupported", "off" (not prepared), "restart" (prepared, the running browser started without
+/// the flag), "ready". Read from the launchers and the browsers' command lines only: it never
+/// queries the accessibility bus (a periodic tree walk over a big browser can wedge it).
 pub fn state() -> String {
     #[cfg(target_os = "linux")]
     {
         if !prepared() {
             return "off".into();
         }
-        match run(&["probe"]) {
-            Ok(v) if v["content"].as_bool() == Some(true) => "ready".into(),
-            _ => "restart".into(),
+        let mut running = false;
+        let mut flagged = false;
+        if let Ok(dir) = std::fs::read_dir("/proc") {
+            for e in dir.flatten() {
+                let Ok(cmd) = std::fs::read(e.path().join("cmdline")) else {
+                    continue;
+                };
+                let mut parts = cmd.split(|b| *b == 0).filter(|p| !p.is_empty());
+                let Some(prog) = parts.next() else { continue };
+                let prog = String::from_utf8_lossy(prog);
+                let base = prog.rsplit('/').next().unwrap_or("");
+                if !matches!(
+                    base,
+                    "chrome"
+                        | "google-chrome"
+                        | "chromium"
+                        | "chromium-browser"
+                        | "brave"
+                        | "msedge"
+                        | "vivaldi-bin"
+                ) {
+                    continue;
+                }
+                // The browser's main process (renderers and helpers carry --type=...).
+                let args: Vec<_> = parts.map(String::from_utf8_lossy).collect();
+                if args.iter().any(|a| a.starts_with("--type=")) {
+                    continue;
+                }
+                running = true;
+                flagged |= args.iter().any(|a| a == FLAG);
+            }
+        }
+        if running && !flagged {
+            "restart".into()
+        } else {
+            "ready".into()
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -150,7 +201,7 @@ pub fn prepare() -> Result<usize> {
 pub fn resign_cic(email: &str) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        let v = run(&["resign", email])?;
+        let v = run(&["resign", email], std::time::Duration::from_secs(150))?;
         if v["ok"].as_bool() == Some(true) {
             return Ok(());
         }
