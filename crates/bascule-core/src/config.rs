@@ -122,6 +122,22 @@ impl Settings {
         }
     }
 
+    /// Write the settings file atomically, private (0600 on Unix).
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            crate::store::private_dir(dir)?;
+        }
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, toml::to_string_pretty(self)?)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    }
+
     pub fn threshold_for(&self, window: &str) -> f64 {
         self.thresholds
             .get(window)

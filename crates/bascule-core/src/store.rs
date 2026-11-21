@@ -213,6 +213,14 @@ pub fn atomic_write(path: &Path, value: &Value) -> Result<()> {
 }
 
 fn atomic_write_mode(path: &Path, value: &Value, mode: u32) -> Result<()> {
+    let mut text = serde_json::to_string_pretty(value)?;
+    text.push('\n');
+    atomic_write_text(path, &text, mode)
+}
+
+/// Write text atomically (temporary file, then rename) with the given Unix mode, never through a
+/// symlink.
+pub fn atomic_write_text(path: &Path, text: &str, mode: u32) -> Result<()> {
     if fs::symlink_metadata(path)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false)
@@ -223,8 +231,6 @@ fn atomic_write_mode(path: &Path, value: &Value, mode: u32) -> Result<()> {
     fs::create_dir_all(dir)?;
     let name = path.file_name().context("no file name")?.to_string_lossy();
     let tmp = dir.join(format!(".{name}.bascule.{}.tmp", std::process::id()));
-    let mut text = serde_json::to_string_pretty(value)?;
-    text.push('\n');
     let result = (|| -> Result<()> {
         let mut opts = OpenOptions::new();
         opts.write(true).create_new(true);

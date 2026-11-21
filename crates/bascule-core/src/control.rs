@@ -1,7 +1,7 @@
 //! The daemon's local socket for the mini-app and the CLI: `<state>/bascule.sock` (0600).
 //! One JSON object per line: `{id, method, params}` → `{id, ok, result|error}`.
 //! Methods: state, switch, reread, resume.add, resume.send, resume.dismiss, settings.get, settings.set,
-//! login.start, login.code, login.cancel.
+//! login.start, login.code, login.cancel, accounts.add, accounts.remove, accounts.export, accounts.import.
 
 use crate::config::{AccountList, Settings};
 use crate::daemon::Cmd;
@@ -280,6 +280,55 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             list.save(&ctx.paths.accounts_file())?;
             log(&ctx.paths, "accounts.add", json!({"name": name}));
             Ok(json!({"name": name}))
+        }
+        "accounts.export" => {
+            // A backup file in the downloads folder (or `out`): identity, preferences, claude.ai
+            // session; never Claude Code's tokens (see backup.rs).
+            let names: Vec<String> = p
+                .get("names")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let backup = crate::backup::export(&ctx.paths, &names, chrono::Utc::now())?;
+            let path = match p.get("out").and_then(Value::as_str) {
+                Some(o) => PathBuf::from(o),
+                None => crate::backup::free_path(
+                    &platform::downloads_dir(&ctx.paths.home),
+                    &names,
+                    chrono::Local::now(),
+                ),
+            };
+            crate::backup::write(&path, &backup)?;
+            let with_web = backup
+                .accounts
+                .iter()
+                .filter(|e| e.claude_ai.is_some())
+                .count();
+            log(
+                &ctx.paths,
+                "accounts.export",
+                json!({"accounts": backup.accounts.len(), "with_web": with_web}),
+            );
+            Ok(
+                json!({"path": path, "dir": path.parent(), "accounts": backup.accounts.len(), "with_web": with_web}),
+            )
+        }
+        "accounts.import" => {
+            let text = p
+                .get("data")
+                .and_then(Value::as_str)
+                .context("accounts.import needs 'data'")?;
+            let report = crate::backup::import(&ctx.paths, &crate::backup::parse(text)?)?;
+            log(
+                &ctx.paths,
+                "accounts.import",
+                serde_json::to_value(&report)?,
+            );
+            Ok(serde_json::to_value(report)?)
         }
         "accounts.remove" => {
             let name = p

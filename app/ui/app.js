@@ -30,7 +30,7 @@ const ICON = {
   puzzle: "M10 4a2 2 0 1 1 4 0v1h4a1 1 0 0 1 1 1v4h1a2 2 0 1 1 0 4h-1v4a1 1 0 0 1-1 1h-4v-1a2 2 0 1 0-4 0v1H6a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H5V6a1 1 0 0 1 1-1h4z",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10z",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
-  trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6", download: "M12 3v12M7 10l5 5 5-5M5 21h14",
+  trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6", download: "M12 3v12M7 10l5 5 5-5M5 21h14", upload: "M12 15V3M7 8l5-5 5 5M5 21h14",
   link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
   user: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
 };
@@ -488,6 +488,7 @@ function renderAccounts(root) {
         { icon: "refresh", label: tr("reread"), onClick: () => act(() => call("reread"), tr("reread_ok")) },
         { icon: "pencil", label: tr("rename"), onClick: () => openRename(a) },
         { icon: "smile", label: tr("change_icon"), onClick: () => openIconPicker(a) },
+        { icon: "download", label: tr("export_account"), onClick: () => exportAccounts([a.name]) },
         webCan(a) ? { icon: "globe", label: tr("web_switch"), onClick: () => act(() => call("web.switch", { to: a.name }), tr("web_switch_sent")) } : null,
         cicCan(a) ? { icon: "puzzle", label: tr("cic_switch"), onClick: () => startCic(a) } : null,
         { icon: "key", label: a.place === "signed_out" ? tr("sign_in") : tr("sign_in_again"), onClick: () => startLogin(a) },
@@ -717,6 +718,58 @@ function confirmRemove(a) {
     { label: tr("remove_go"), primary: true, danger: true, icon: "trash", onClick: (m) => { m.close(); act(() => call("accounts.remove", { name: a.name }), tr("removed")); } },
   ] });
 }
+// ---------- backups ----------
+// A JSON file with accounts, their name, icon, rotation and claude.ai session (never Claude
+// Code's tokens: each computer keeps its own sign-in). Written by the service in Downloads.
+async function exportAccounts(names) {
+  let r;
+  try { r = await call("accounts.export", names.length ? { names } : {}); } catch (e) { toast(String(e), "bad"); return; }
+  const notes = [el("p", { class: "muted small", text: tr(r.accounts === 1 ? "export_warn_one" : "export_warn_other") }), el("p", { class: "muted small", text: tr("export_cli") })];
+  if (r.with_web < r.accounts) notes.unshift(el("p", { class: "muted small", text: tr(r.accounts === 1 ? "export_no_web_one" : "export_no_web_other") }));
+  modal({ title: tr("export_title"), body: el("div", { class: "form" },
+    el("p", { text: trn("export_done", r.accounts) }), el("div", { class: "path", text: r.path }), ...notes),
+  actions: [
+    { label: tr("close"), onClick: (m) => m.close() },
+    { label: tr("show_folder"), primary: true, icon: "folder", onClick: (m) => { invoke("open_folder", { path: r.dir }).catch((e) => toast(String(e), "bad")); m.close(); } },
+  ] });
+}
+function importBackup() {
+  const input = el("input", { type: "file", accept: ".json,application/json", style: "display:none" });
+  input.addEventListener("change", async () => {
+    const f = input.files && input.files[0];
+    input.remove();
+    if (!f) return;
+    let r;
+    try {
+      r = await call("accounts.import", { data: await f.text() });
+    } catch (e) {
+      const msg = String(e);
+      toast(/not a Claude Bascule backup/.test(msg) ? tr("import_bad") : /newer Claude Bascule/.test(msg) ? tr("import_newer") : msg, "bad");
+      return;
+    }
+    // The service lists new accounts at its next turn.
+    for (let i = 0; i < 20 && !r.added.every((n) => acct(n)); i++) { await refresh(); await new Promise((ok) => setTimeout(ok, 250)); }
+    showImport(r);
+  }, { once: true });
+  document.body.append(input);
+  input.click();
+}
+function showImport(r) {
+  const rows = [];
+  const line = (n, chip, live) => {
+    const a = acct(n) || { name: n, label: n };
+    return el("div", { class: "acct-item web-item" }, avatar(a, "sm"), el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email || "" }),
+      el("span", { class: "chip" + (live ? " live" : ""), text: chip }),
+      live && a.place === "signed_out" ? el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); startLogin(a); } }, icon("key"), tr("sign_in")) : el("span"));
+  };
+  for (const n of r.added) rows.push(line(n, tr("import_added"), true));
+  for (const n of r.completed) rows.push(line(n, tr("import_completed")));
+  for (const n of r.unchanged) rows.push(line(n, tr("import_unchanged")));
+  const body = rows.length
+    ? el("div", { class: "form" }, el("div", { class: "acct-list" }, rows), r.added.length ? el("p", { class: "muted small", text: tr("import_login_note") }) : null)
+    : el("p", { text: tr("import_none") });
+  const m = modal({ title: tr("import_title"), body, actions: [{ label: tr("close"), primary: true, onClick: (mm) => mm.close() }] });
+}
 function openAddAccount() {
   const input = el("input", { type: "email", placeholder: tr("add_ph"), autocomplete: "off", spellcheck: "false" });
   const go = async (m) => {
@@ -730,7 +783,8 @@ function openAddAccount() {
     } catch (e) { toast(String(e), "bad"); }
   };
   input.addEventListener("input", () => input.classList.remove("bad"));
-  const m = modal({ title: tr("add_title"), body: el("div", { class: "form" }, el("p", { class: "muted", text: tr("add_body") }), input), actions: [
+  const m = modal({ title: tr("add_title"), body: el("div", { class: "form" }, el("p", { class: "muted", text: tr("add_body") }), input,
+    el("button", { class: "btn flat add-import", type: "button", onclick: () => { m.close(); importBackup(); } }, icon("upload"), tr("import_backup"))), actions: [
     { label: tr("cancel"), onClick: (mm) => mm.close() },
     { label: tr("add_go"), primary: true, onClick: go },
   ] });
@@ -1049,8 +1103,11 @@ function openSettings(startTab = "switch", focusKeys = []) {
           el("button", { class: "icon-btn danger", type: "button", "aria-label": tr("remove_account"), "data-tip": tr("remove_account"), disabled: (acct(n) || {}).place === "active", onclick: () => { m.close(); confirmRemove(acct(n) || { name: n, label: n }); } }, icon("trash"))));
       });
       list.append(el("button", { class: "btn flat add-row", type: "button", onclick: () => { m.close(); openAddAccount(); } }, icon("plus"), tr("add_account")));
+      const backup = el("div", { class: "btn-row" },
+        el("button", { class: "btn", type: "button", onclick: () => { m.close(); exportAccounts([]); } }, icon("download"), tr("export_all")),
+        el("button", { class: "btn", type: "button", onclick: () => { m.close(); importBackup(); } }, icon("upload"), tr("import_backup")));
       return [row("next_account_rule", select({ value: d.next_account_rule, options: ["headroom", "order"].map((v) => ({ value: v, label: tr("rule_" + v), help: tr("rule_" + v + "_h") })), onChange: (v) => { d.next_account_rule = v; touch(); } })),
-        row("accounts_list", list, { stack: true })];
+        row("accounts_list", list, { stack: true }), row("backup", backup, { stack: true })];
     },
     browser: () => {
       const w = S.web || {};

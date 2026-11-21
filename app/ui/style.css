@@ -512,3 +512,5 @@ svg.brand { fill: currentColor; stroke: none; }
 .sw-mark svg { width: 16px; height: 16px; }
 .sw-label { font-weight: 500; }
 .hidden-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 13px; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.add-import { justify-self: start; align-self: flex-start; margin-top: 2px; }

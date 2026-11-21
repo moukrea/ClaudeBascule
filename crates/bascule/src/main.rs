@@ -79,6 +79,17 @@ enum Cmd {
         text: Option<String>,
         sessions: Vec<String>,
     },
+    /// Save accounts to a JSON backup: identity, display name, icon, rotation and claude.ai
+    /// session. Never Claude Code's tokens (each computer signs in on its own). Every account
+    /// when none is named; the file goes to the downloads folder unless --out is given.
+    Export {
+        names: Vec<String>,
+        #[arg(short, long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Add the accounts of a backup made by `bascule export`, and give the accounts already
+    /// here what they lack (nothing here is overwritten).
+    Import { file: std::path::PathBuf },
     /// Effective settings.
     Config,
     /// Remove a vault copy of the live tokens left by an interrupted switch.
@@ -231,6 +242,55 @@ fn run() -> Result<()> {
                         when(t.and_then(|t| t.refresh_expires_at))
                     );
                 }
+            }
+        }
+        Cmd::Export { names, out } => {
+            let paths = Paths::from_env();
+            let backup = bascule_core::backup::export(&paths, &names, chrono::Utc::now())?;
+            if backup.accounts.is_empty() {
+                bail!("no accounts to export");
+            }
+            let path = match out {
+                Some(o) => std::path::absolute(o)?,
+                None => bascule_core::backup::free_path(
+                    &bascule_core::platform::downloads_dir(&paths.home),
+                    &names,
+                    chrono::Local::now(),
+                ),
+            };
+            bascule_core::backup::write(&path, &backup)?;
+            let with_web = backup
+                .accounts
+                .iter()
+                .filter(|e| e.claude_ai.is_some())
+                .count();
+            observe::log(
+                &paths,
+                "accounts.export",
+                json!({"accounts": backup.accounts.len(), "with_web": with_web}),
+            );
+            println!(
+                "{} account(s) saved to {} ({} with a claude.ai session).\nThe file opens claude.ai as these accounts: keep it like a password.",
+                backup.accounts.len(),
+                path.display(),
+                with_web
+            );
+        }
+        Cmd::Import { file } => {
+            let paths = Paths::from_env();
+            let text = std::fs::read_to_string(&file)
+                .with_context(|| format!("read {}", file.display()))?;
+            let report =
+                bascule_core::backup::import(&paths, &bascule_core::backup::parse(&text)?)?;
+            observe::log(&paths, "accounts.import", serde_json::to_value(&report)?);
+            for n in &report.added {
+                println!("added      {n}  (sign it in: bascule login {n})");
+            }
+            for n in &report.completed {
+                println!("completed  {n}");
+            }
+            for n in &report.unchanged {
+                println!("unchanged  {n}");
             }
         }
         Cmd::Switch { name, yes } => {
