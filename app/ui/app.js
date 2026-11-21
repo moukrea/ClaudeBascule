@@ -759,14 +759,15 @@ function showImport(r) {
   let m = null;
   const rows = r.accounts.map((x) => {
     const a = acct(x.name) || { name: x.name, label: x.name };
-    const toSign = a.place === "signed_out";
+    // A restored sign-in may take a moment to show on the account: no sign-in button for it.
+    const toSign = a.place === "signed_out" && !x.cli.startsWith("restored");
     return el("div", { class: "acct-item imp-item" }, avatar(a, "sm"),
       el("div", { class: "imp-text" }, el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email || "" }),
         el("span", { class: "muted small", text: tr("imp_cli_" + x.cli) }), el("span", { class: "muted small", text: tr("imp_web_" + x.web) })),
       el("span", { class: "chip" + (x.status === "added" ? " live" : ""), text: tr("import_" + x.status) }),
       toSign ? el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); startLogin(a); } }, icon("key"), tr("sign_in")) : el("span"));
   });
-  const toSign = r.accounts.some((x) => (acct(x.name) || {}).place === "signed_out");
+  const toSign = r.accounts.some((x) => (acct(x.name) || {}).place === "signed_out" && !x.cli.startsWith("restored"));
   const body = rows.length
     ? el("div", { class: "form" }, el("div", { class: "acct-list" }, rows), toSign ? el("p", { class: "muted small", text: tr("import_login_note") }) : null)
     : el("p", { text: tr("import_none") });

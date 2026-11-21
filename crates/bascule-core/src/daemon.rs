@@ -48,6 +48,9 @@ pub enum Cmd {
         account: String,
         reply: Reply,
     },
+    /// Accounts or their sign-ins changed on disk (an import, an account added or removed):
+    /// show where each one stands now, and read the ones that changed at once.
+    Restate,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -1182,6 +1185,41 @@ impl Daemon {
                     .map_err(|e| format!("{e:#}"));
                 self.follow_override = None;
                 let _ = reply.send(r);
+            }
+            Cmd::Restate => {
+                if let Ok(l) = AccountList::load(&self.paths.accounts_file()) {
+                    self.list = l;
+                }
+                if let Ok(states) = vault::states(&self.paths, &self.list) {
+                    for st in states {
+                        let changed = self
+                            .accounts
+                            .get(&st.name)
+                            .is_none_or(|v| v.state.place != st.place);
+                        if changed {
+                            // Read at the next turn rather than at the next regular read.
+                            self.read_at.remove(&st.name);
+                            self.retry_at.remove(&st.name);
+                        }
+                        let name = st.name.clone();
+                        match self.accounts.get_mut(&name) {
+                            Some(v) => v.state = st,
+                            None => {
+                                self.accounts.insert(
+                                    name,
+                                    AccountView {
+                                        state: st,
+                                        usage: None,
+                                        usage_error: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                let names: Vec<&String> = self.list.accounts.iter().map(|a| &a.name).collect();
+                self.accounts.retain(|k, _| names.contains(&k));
+                self.publish();
             }
             Cmd::Reread { reply } => {
                 self.read_due(true);
