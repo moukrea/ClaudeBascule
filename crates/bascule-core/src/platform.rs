@@ -455,6 +455,45 @@ pub fn open_folder(path: &Path) -> Result<()> {
         .context("open the folder")
 }
 
+/// The user's downloads folder (where account backups go), else the home folder.
+pub fn downloads_dir(home: &Path) -> PathBuf {
+    // Linux: the localized folder from xdg-user-dirs (`XDG_DOWNLOAD_DIR="$HOME/Téléchargements"`).
+    #[cfg(target_os = "linux")]
+    {
+        let conf = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"));
+        if let Some(dir) = std::fs::read_to_string(conf.join("user-dirs.dirs"))
+            .ok()
+            .and_then(|t| xdg_download_dir(&t, home))
+        {
+            if dir.is_dir() {
+                return dir;
+            }
+        }
+    }
+    let d = home.join("Downloads");
+    if d.is_dir() {
+        d
+    } else {
+        home.to_path_buf()
+    }
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn xdg_download_dir(text: &str, home: &Path) -> Option<PathBuf> {
+    let line = text
+        .lines()
+        .find(|l| l.trim_start().starts_with("XDG_DOWNLOAD_DIR="))?;
+    let v = line.split_once('=')?.1.trim().trim_matches('"');
+    let v = v.strip_prefix("$HOME").map_or_else(
+        || PathBuf::from(v),
+        |rest| home.join(rest.trim_start_matches('/')),
+    );
+    (v != home).then_some(v)
+}
+
 /// A Chromium-based browser found on this machine.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Browser {
@@ -636,4 +675,24 @@ pub fn open_in_browser(id: &str, url: &str) -> Result<()> {
         .spawn()
         .map(|_| ())
         .context("start the browser")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xdg_downloads() {
+        let home = Path::new("/home/u");
+        let t = "# comment\nXDG_DESKTOP_DIR=\"$HOME/Bureau\"\nXDG_DOWNLOAD_DIR=\"$HOME/Téléchargements\"\n";
+        assert_eq!(
+            xdg_download_dir(t, home),
+            Some(PathBuf::from("/home/u/Téléchargements"))
+        );
+        assert_eq!(xdg_download_dir("XDG_DOWNLOAD_DIR=\"$HOME/\"", home), None);
+        assert_eq!(
+            xdg_download_dir("XDG_DOWNLOAD_DIR=\"/data/dl\"", home),
+            Some(PathBuf::from("/data/dl"))
+        );
+    }
 }

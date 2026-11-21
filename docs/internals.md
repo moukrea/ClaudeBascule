@@ -84,6 +84,22 @@ to the service, and long-polls `web.next` for commands (`switch`, `login`).
   `claude.ai/oauth/authorize`, tokens in its own storage): it follows the browser's session at its
   next (silent) sign-in only.
 
+## Backups
+
+`bascule export` (and the app's export) writes `claude-bascule-<account|accounts>-<date>.json`
+(0600) in the downloads folder (`XDG_DOWNLOAD_DIR` on Linux):
+
+```json
+{"format": "claude-bascule-accounts", "version": 1, "exported_at": "…", "app_version": "…",
+  "accounts": [{"email": "…", "display_name": "…", "icon": "briefcase", "in_rotation": true,
+    "claude_ai": {"cookies": [{"name": "sessionKey", "…": "…"}], "saved_at": 0}}]}
+```
+
+Only the claude.ai session cookies are kept. Claude Code's tokens are never exported: a refresh
+token must have one live copy. An import adds missing accounts (signed out until they sign in),
+keeps the rotation membership, and only fills what an existing account lacks (session, display
+name, icon).
+
 ## For other programs
 
 `bascule usage --json` prints each account's windows as the service last read them, numbers only:

@@ -92,6 +92,17 @@ or on its own from an account's menu. It needs its small companion extension,
 The Claude in Chrome extension keeps its own sign-in: it follows the browser's account the next
 time it signs in; sign out and in again from its panel to make it follow at once (no code needed).
 
+## Back up your accounts
+
+**Settings → Accounts → Export all accounts** (or **Export this account** in an account's menu)
+saves a JSON file in your Downloads folder: each account with its name, icon, place in the
+rotation and claude.ai session. **Import a backup** (same place, or in **Add an account**) adds the
+accounts that are missing, here or on another computer, and never overwrites what is already here.
+
+The file opens claude.ai as those accounts: keep it like a password. Claude Code's sign-in is not
+in it, because a copy of it stops working at its first renewal: after an import, sign each new
+account in once. From a terminal: `bascule export` and `bascule import <file>`.
+
 ## Uninstall
 
 - **Linux**: `systemctl --user disable --now claude-bascule; rm -f ~/.local/bin/bascule ~/.local/bin/bascule-app ~/.config/systemd/user/claude-bascule.service ~/.local/share/applications/claude-bascule.desktop`
