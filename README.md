@@ -96,12 +96,14 @@ time it signs in; sign out and in again from its panel to make it follow at once
 
 **Settings → Accounts → Export all accounts** (or **Export this account** in an account's menu)
 saves a JSON file in your Downloads folder: each account with its name, icon, place in the
-rotation and claude.ai session. **Import a backup** (same place, or in **Add an account**) adds the
-accounts that are missing, here or on another computer, and never overwrites what is already here.
+rotation, claude.ai session and Claude Code sign-in. **Import a backup** (same place, or in
+**Add an account**) adds the accounts that are missing and never overwrites what is already here.
 
-The file opens claude.ai as those accounts: keep it like a password. Claude Code's sign-in is not
-in it, because a copy of it stops working at its first renewal: after an import, sign each new
-account in once. From a terminal: `bascule export` and `bascule import <file>`.
+The file holds those accounts' sign-ins: keep it like a password. Claude Code renews its sign-in
+every few hours and each renewal retires the previous one, so the sign-in in a backup comes back
+on the same computer as long as it was not renewed since the export (for example, an account
+deleted right after). Another computer never takes it over, since that would sign this one out:
+sign the account in there once. From a terminal: `bascule export` and `bascule import <file>`.
 
 ## Uninstall
 

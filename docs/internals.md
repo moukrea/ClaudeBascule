@@ -91,14 +91,19 @@ to the service, and long-polls `web.next` for commands (`switch`, `login`).
 
 ```json
 {"format": "claude-bascule-accounts", "version": 1, "exported_at": "…", "app_version": "…",
+  "machine": "<hash of the machine id and home folder>",
   "accounts": [{"email": "…", "display_name": "…", "icon": "briefcase", "in_rotation": true,
-    "claude_ai": {"cookies": [{"name": "sessionKey", "…": "…"}], "saved_at": 0}}]}
+    "claude_ai": {"cookies": [{"name": "sessionKey", "…": "…"}], "saved_at": 0},
+    "claude_code": {"oauth": {"refreshToken": "…", "…": "…"}, "account": {"emailAddress": "…"}}}]}
 ```
 
-Only the claude.ai session cookies are kept. Claude Code's tokens are never exported: a refresh
-token must have one live copy. An import adds missing accounts (signed out until they sign in),
-keeps the rotation membership, and only fills what an existing account lacks (session, display
-name, icon).
+`claude_code` is the account's `claudeAiOauth` and `oauthAccount` (Claude Code's own place for the
+active account, its vault entry otherwise). A refresh token has one live copy, so an import puts
+it back only when the backup's `machine` is this computer and user, the account has no sign-in
+here (deleted since, or signed out) and the refresh token has not expired; a token renewed since
+the export is refused by Anthropic at the next refresh and the account shows as signed out. An
+import adds missing accounts, keeps the rotation membership and only fills what an existing
+account lacks (sign-in, session, display name, icon).
 
 ## For other programs
 

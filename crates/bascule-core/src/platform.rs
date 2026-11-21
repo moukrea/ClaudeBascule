@@ -455,6 +455,55 @@ pub fn open_folder(path: &Path) -> Result<()> {
         .context("open the folder")
 }
 
+/// This computer and user, as a short hash (the system's machine id and the home folder): account
+/// backups put Claude Code sign-ins back only where they were made. Empty when unknown.
+pub fn machine_key(home: &Path) -> String {
+    let id = machine_id().unwrap_or_default();
+    if id.trim().is_empty() {
+        return String::new();
+    }
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(format!("{}\n{}", id.trim(), home.display()).as_bytes());
+    h.iter().take(12).map(|b| format!("{b:02x}")).collect()
+}
+
+fn machine_id() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        ["/etc/machine-id", "/var/lib/dbus/machine-id"]
+            .iter()
+            .find_map(|f| std::fs::read_to_string(f).ok())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = Command::new("ioreg")
+            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find(|l| l.contains("IOPlatformUUID"))
+            .and_then(|l| l.split('"').nth(3))
+            .map(str::to_string)
+    }
+    #[cfg(windows)]
+    {
+        let out = quiet(Command::new("reg").args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Cryptography",
+            "/v",
+            "MachineGuid",
+        ]))
+        .output()
+        .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find(|l| l.contains("MachineGuid"))
+            .and_then(|l| l.split_whitespace().last())
+            .map(str::to_string)
+    }
+}
+
 /// The user's downloads folder (where account backups go), else the home folder.
 pub fn downloads_dir(home: &Path) -> PathBuf {
     // Linux: the localized folder from xdg-user-dirs (`XDG_DOWNLOAD_DIR="$HOME/Téléchargements"`).
