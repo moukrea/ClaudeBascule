@@ -415,6 +415,20 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 {
                     let mut hub = ctx.web.lock().unwrap();
                     hub.seen_ms = now_ms();
+                    // The extension polls but never said hello to this service (it restarted while
+                    // the browser kept its connection): reloading it makes it introduce itself,
+                    // report claude.ai's account and run its latest installed code.
+                    let now = now_ms();
+                    if hub.first_poll_ms == 0 {
+                        hub.first_poll_ms = now;
+                    }
+                    if hub.version.is_none()
+                        && !hub.reload_asked
+                        && now - hub.first_poll_ms > 10_000
+                    {
+                        hub.reload_asked = true;
+                        return Ok(json!({"type": "reload"}));
+                    }
                     if let Some(c) = hub.queue.pop_front() {
                         return Ok(c);
                     }
