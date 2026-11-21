@@ -1,7 +1,12 @@
 //! Account backups: one JSON file with each account's identity, its preferences in Claude Bascule
-//! (display name, icon, rotation) and its claude.ai session (the browser cookies Claude Bascule
-//! keeps for it). Never Claude Code's tokens: a refresh token must have one live copy, and a copy
-//! is invalidated by the first refresh, so each computer keeps its own Claude Code sign-in.
+//! (display name, icon, rotation), its claude.ai session (the browser cookies Claude Bascule keeps
+//! for it) and its Claude Code sign-in.
+//!
+//! A refresh token must have one live copy: the first refresh by one holder invalidates the
+//! others. So the Claude Code sign-in of a backup is only put back on the computer (and user) that
+//! made it, and only for an account that has no sign-in there any more (deleted since, or signed
+//! out). It works as long as nothing renewed that sign-in after the export; otherwise the account
+//! just shows as signed out. Another computer never takes it over: it would sign this one out.
 
 use crate::config::{AccountList, Settings};
 use crate::paths::Paths;
@@ -24,6 +29,10 @@ pub struct Backup {
     pub exported_at: String,
     #[serde(default)]
     pub app_version: String,
+    /// Which computer and user made it (`platform::machine_key`): Claude Code sign-ins are only
+    /// restored there.
+    #[serde(default)]
+    pub machine: String,
     pub accounts: Vec<Entry>,
 }
 
@@ -38,6 +47,15 @@ pub struct Entry {
     pub in_rotation: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_ai: Option<WebPart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_code: Option<CliPart>,
+}
+
+/// Claude Code's sign-in: its `claudeAiOauth` and `oauthAccount`, as Claude Code writes them.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CliPart {
+    pub oauth: Value,
+    pub account: Value,
 }
 
 fn yes() -> bool {
@@ -52,15 +70,22 @@ pub struct WebPart {
     pub saved_at: i64,
 }
 
-/// What an import did, by account id.
+/// What an import did to one account.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Item {
+    pub name: String,
+    /// `added`, `completed` (it received something it lacked) or `unchanged`.
+    pub status: &'static str,
+    /// Claude Code's sign-in: `restored`, `here` (this computer already has one), `other_machine`
+    /// (made elsewhere: sign in here), `expired`, or `none` (not in the backup).
+    pub cli: &'static str,
+    /// The claude.ai session: `restored`, `here` (one is already saved here) or `none`.
+    pub web: &'static str,
+}
+
 #[derive(Debug, Default, Serialize, PartialEq)]
 pub struct Report {
-    /// New accounts (they still need a Claude Code sign-in on this computer).
-    pub added: Vec<String>,
-    /// Accounts already here that received what they lacked (claude.ai session, name, icon).
-    pub completed: Vec<String>,
-    /// Accounts already here with nothing to add.
-    pub unchanged: Vec<String>,
+    pub accounts: Vec<Item>,
 }
 
 /// The accounts named (every account when `names` is empty), in the order Claude Bascule shows them.
@@ -70,6 +95,7 @@ pub fn export(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Backup> {
     let list = AccountList::load(&paths.accounts_file())?;
+    let active = crate::vault::active_account(paths, &list).map(|a| a.name.clone());
     let settings = Settings::load(&paths.settings_file())?;
     for n in names {
         if list.by_name(n).is_none() {
@@ -109,6 +135,17 @@ pub fn export(
                     saved_at: s.saved_at,
                 })
                 .filter(|w| !w.cookies.is_empty()),
+            claude_code: {
+                let slot = if active.as_deref() == Some(a.name.as_str()) {
+                    paths.main.clone()
+                } else {
+                    paths.account_slot(&a.name)
+                };
+                match (slot.oauth().ok().flatten(), slot.account().ok().flatten()) {
+                    (Some(oauth), Some(account)) => Some(CliPart { oauth, account }),
+                    _ => None,
+                }
+            },
         })
         .collect();
     Ok(Backup {
@@ -116,6 +153,7 @@ pub fn export(
         version: VERSION,
         exported_at: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         app_version: env!("CARGO_PKG_VERSION").into(),
+        machine: crate::platform::machine_key(&paths.home),
         accounts,
     })
 }
@@ -167,10 +205,53 @@ fn icon_ok(icon: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// Put a backup's Claude Code sign-in back into the account's vault entry, when that is safe.
+fn restore_cli(
+    paths: &Paths,
+    backup: &Backup,
+    e: &Entry,
+    name: &str,
+    active: bool,
+    now_ms: i64,
+) -> Result<&'static str> {
+    let Some(c) = &e.claude_code else {
+        return Ok("none");
+    };
+    let slot = paths.account_slot(name);
+    if active || slot.oauth()?.is_some() {
+        return Ok("here");
+    }
+    if backup.machine.is_empty() || backup.machine != crate::platform::machine_key(&paths.home) {
+        return Ok("other_machine");
+    }
+    let same_email = c
+        .account
+        .get("emailAddress")
+        .and_then(Value::as_str)
+        .is_some_and(|m| m.eq_ignore_ascii_case(&e.email));
+    if !same_email || !c.oauth.get("refreshToken").is_some_and(Value::is_string) {
+        return Ok("none");
+    }
+    if c.oauth
+        .get("refreshTokenExpiresAt")
+        .and_then(Value::as_i64)
+        .is_some_and(|t| t <= now_ms)
+    {
+        return Ok("expired");
+    }
+    crate::store::private_dir(&slot.dir)?;
+    slot.set_oauth(Some(&c.oauth))?;
+    slot.set_account(Some(&c.account))?;
+    Ok("restored")
+}
+
 /// Add the backup's accounts that are not here, and give the ones already here what they lack.
-/// What this computer already has (a claude.ai session, a name, an icon) is never overwritten.
+/// What this computer already has (a sign-in, a claude.ai session, a name, an icon) is never
+/// overwritten.
 pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
     let mut list = AccountList::load(&paths.accounts_file())?;
+    let active = crate::vault::active_account(paths, &list).map(|a| a.name.clone());
+    let now_ms = chrono::Utc::now().timestamp_millis();
     let mut settings = Settings::load(&paths.settings_file())?;
     let before: Vec<String> = list.accounts.iter().map(|a| a.name.clone()).collect();
     let mut rotation = if settings.rotation.is_empty() {
@@ -187,9 +268,21 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
             None => list.add(&e.email)?,
         };
         let mut changed = false;
+        let cli = restore_cli(
+            paths,
+            backup,
+            e,
+            &name,
+            active.as_deref() == Some(name.as_str()),
+            now_ms,
+        )?;
+        changed |= cli == "restored";
+        let mut web_done = "none";
         if let Some(w) = &e.claude_ai {
             let cookies = web::session_cookies(&w.cookies);
-            if !cookies.is_empty() && !web::has(paths, &name) {
+            if !cookies.is_empty() && web::has(paths, &name) {
+                web_done = "here";
+            } else if !cookies.is_empty() {
                 web::save(
                     paths,
                     &name,
@@ -202,6 +295,7 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
                         saved_at: w.saved_at,
                     },
                 )?;
+                web_done = "restored";
                 changed = true;
             }
         }
@@ -219,18 +313,24 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
                 settings_changed = true;
             }
         }
-        if existing.is_none() {
+        let status = if existing.is_none() {
             if e.in_rotation {
                 rotation.push(name.clone());
             }
-            report.added.push(name);
+            "added"
         } else if changed {
-            report.completed.push(name);
+            "completed"
         } else {
-            report.unchanged.push(name);
-        }
+            "unchanged"
+        };
+        report.accounts.push(Item {
+            name,
+            status,
+            cli,
+            web: web_done,
+        });
     }
-    if !report.added.is_empty() {
+    if report.accounts.iter().any(|i| i.status == "added") {
         list.save(&paths.accounts_file())?;
         // Every account in the list's order is written as "every account" (an empty rotation).
         let all: Vec<String> = list.accounts.iter().map(|a| a.name.clone()).collect();
@@ -285,6 +385,10 @@ mod tests {
         json!({"name": name, "value": value, "domain": ".claude.ai", "path": "/", "secure": true, "httpOnly": true})
     }
 
+    fn oauth(rt: &str) -> Value {
+        json!({"accessToken": format!("A-{rt}"), "refreshToken": rt, "refreshTokenExpiresAt": 4102444800000_i64})
+    }
+
     fn setup(p: &Paths) {
         let mut l = AccountList::default();
         l.add("pro@example.com").unwrap();
@@ -308,10 +412,23 @@ mod tests {
             },
         )
         .unwrap();
+        // perso is the active account, pro rests in the vault, spare is signed out.
+        p.main.set_oauth(Some(&oauth("RT-perso"))).unwrap();
+        p.main
+            .set_account(Some(&json!({"emailAddress": "perso@example.com"})))
+            .unwrap();
+        let pro = p.account_slot("pro");
+        pro.set_oauth(Some(&oauth("RT-pro"))).unwrap();
+        pro.set_account(Some(&json!({"emailAddress": "pro@example.com"})))
+            .unwrap();
+    }
+
+    fn item<'a>(r: &'a Report, name: &str) -> &'a Item {
+        r.accounts.iter().find(|i| i.name == name).unwrap()
     }
 
     #[test]
-    fn export_carries_preferences_and_session_only() {
+    fn export_carries_preferences_session_and_sign_in() {
         let t = Tmp::new("export");
         let p = paths(t.path());
         setup(&p);
@@ -321,26 +438,75 @@ mod tests {
             emails,
             ["perso@example.com", "pro@example.com", "spare@example.com"]
         );
+        assert_eq!(b.machine, crate::platform::machine_key(&p.home));
         let pro = &b.accounts[1];
         assert_eq!(pro.display_name.as_deref(), Some("Work"));
         assert_eq!(pro.icon.as_deref(), Some("briefcase"));
         let w = pro.claude_ai.as_ref().unwrap();
         assert_eq!(w.cookies.len(), 1, "only session cookies");
+        assert_eq!(
+            pro.claude_code.as_ref().unwrap().oauth["refreshToken"],
+            "RT-pro"
+        );
+        // The active account's sign-in comes from Claude Code's own place.
+        assert_eq!(
+            b.accounts[0].claude_code.as_ref().unwrap().oauth["refreshToken"],
+            "RT-perso"
+        );
+        assert!(b.accounts[2].claude_code.is_none());
         assert!(!b.accounts[2].in_rotation);
         assert!(b.accounts[0].claude_ai.is_none());
-        let text = serde_json::to_string(&b).unwrap();
-        assert!(!text.contains("claudeAiOauth") && !text.contains("refresh"));
         assert!(export(&p, &["nobody".into()], chrono::Utc::now()).is_err());
         let one = export(&p, &["pro".into()], chrono::Utc::now()).unwrap();
         assert_eq!(one.accounts.len(), 1);
     }
 
     #[test]
-    fn import_adds_and_completes_without_overwriting() {
+    fn delete_then_import_restores_everything_here() {
+        let t = Tmp::new("restore");
+        let p = paths(t.path());
+        setup(&p);
+        let text = serde_json::to_string(&export(&p, &[], chrono::Utc::now()).unwrap()).unwrap();
+        // pro is deleted (its vault entry goes with it), then the backup is imported.
+        std::fs::remove_dir_all(&p.account_slot("pro").dir).unwrap();
+        let mut l = AccountList::load(&p.accounts_file()).unwrap();
+        l.remove("pro");
+        l.save(&p.accounts_file()).unwrap();
+
+        let r = import(&p, &parse(&text).unwrap()).unwrap();
+        let pro = item(&r, "pro");
+        assert_eq!(
+            (pro.status, pro.cli, pro.web),
+            ("added", "restored", "restored")
+        );
+        let slot = p.account_slot("pro");
+        assert_eq!(slot.oauth().unwrap().unwrap()["refreshToken"], "RT-pro");
+        assert_eq!(slot.email().as_deref(), Some("pro@example.com"));
+        // The active account is never touched; nothing is overwritten.
+        assert_eq!(item(&r, "perso").cli, "here");
+        assert_eq!(p.main.oauth().unwrap().unwrap()["refreshToken"], "RT-perso");
+        let spare = item(&r, "spare");
+        assert_eq!(
+            (spare.status, spare.cli, spare.web),
+            ("unchanged", "none", "none")
+        );
+        let s = Settings::load(&p.settings_file()).unwrap();
+        assert_eq!(s.avatar_icons["pro"], "briefcase");
+        assert_eq!(s.display_names["pro"], "Work");
+        // A second import changes nothing.
+        let r = import(&p, &parse(&text).unwrap()).unwrap();
+        assert!(r.accounts.iter().all(|i| i.status == "unchanged"));
+        assert_eq!(item(&r, "pro").cli, "here");
+    }
+
+    #[test]
+    fn other_computer_never_takes_the_sign_in() {
         let src = Tmp::new("src");
         let sp = paths(src.path());
         setup(&sp);
-        let text = serde_json::to_string(&export(&sp, &[], chrono::Utc::now()).unwrap()).unwrap();
+        let mut b = export(&sp, &[], chrono::Utc::now()).unwrap();
+        b.machine = "another-computer".into();
+        let text = serde_json::to_string(&b).unwrap();
 
         let dst = Tmp::new("dst");
         let dp = paths(dst.path());
@@ -352,19 +518,40 @@ mod tests {
         s.save(&dp.settings_file()).unwrap();
 
         let r = import(&dp, &parse(&text).unwrap()).unwrap();
-        assert_eq!(r.added, ["perso", "spare"]);
-        assert_eq!(r.completed, ["pro"]);
+        let added: Vec<_> = r
+            .accounts
+            .iter()
+            .filter(|i| i.status == "added")
+            .map(|i| i.name.as_str())
+            .collect();
+        assert_eq!(added, ["perso", "spare"]);
+        let pro = item(&r, "pro");
+        assert_eq!(
+            (pro.status, pro.cli, pro.web),
+            ("completed", "other_machine", "restored")
+        );
+        assert_eq!(item(&r, "perso").cli, "other_machine");
+        assert!(dp.account_slot("pro").oauth().unwrap().is_none());
+        assert!(dp.account_slot("perso").oauth().unwrap().is_none());
         let s = Settings::load(&dp.settings_file()).unwrap();
         assert_eq!(s.display_names["pro"], "Mine", "local name kept");
         assert_eq!(s.avatar_icons["pro"], "briefcase");
         // pro and perso were in rotation, spare was not.
         assert_eq!(s.rotation, ["pro", "perso"]);
         assert_eq!(web::load(&dp, "pro").unwrap().cookies.len(), 1);
+    }
 
-        // A second import adds nothing.
-        let r = import(&dp, &parse(&text).unwrap()).unwrap();
-        assert!(r.added.is_empty() && r.completed.is_empty());
-        assert_eq!(r.unchanged.len(), 3);
+    #[test]
+    fn expired_sign_in_is_not_restored() {
+        let t = Tmp::new("expired");
+        let p = paths(t.path());
+        setup(&p);
+        let mut b = export(&p, &["pro".into()], chrono::Utc::now()).unwrap();
+        b.accounts[0].claude_code.as_mut().unwrap().oauth["refreshTokenExpiresAt"] = json!(1000);
+        std::fs::remove_dir_all(&p.account_slot("pro").dir).unwrap();
+        let r = import(&p, &b).unwrap();
+        assert_eq!(item(&r, "pro").cli, "expired");
+        assert!(p.account_slot("pro").oauth().unwrap().is_none());
     }
 
     #[test]

@@ -79,16 +79,17 @@ enum Cmd {
         text: Option<String>,
         sessions: Vec<String>,
     },
-    /// Save accounts to a JSON backup: identity, display name, icon, rotation and claude.ai
-    /// session. Never Claude Code's tokens (each computer signs in on its own). Every account
-    /// when none is named; the file goes to the downloads folder unless --out is given.
+    /// Save accounts to a JSON backup: identity, display name, icon, rotation, claude.ai session
+    /// and Claude Code sign-in (restored only on this computer). Every account when none is
+    /// named; the file goes to the downloads folder unless --out is given.
     Export {
         names: Vec<String>,
         #[arg(short, long)]
         out: Option<std::path::PathBuf>,
     },
     /// Add the accounts of a backup made by `bascule export`, and give the accounts already
-    /// here what they lack (nothing here is overwritten).
+    /// here what they lack (nothing here is overwritten). A Claude Code sign-in comes back only
+    /// on the computer that made the backup, for an account without one.
     Import { file: std::path::PathBuf },
     /// Effective settings.
     Config,
@@ -270,7 +271,7 @@ fn run() -> Result<()> {
                 json!({"accounts": backup.accounts.len(), "with_web": with_web}),
             );
             println!(
-                "{} account(s) saved to {} ({} with a claude.ai session).\nThe file opens claude.ai as these accounts: keep it like a password.",
+                "{} account(s) saved to {} ({} with a claude.ai session).\nThe file holds these accounts' sign-ins: keep it like a password.",
                 backup.accounts.len(),
                 path.display(),
                 with_web
@@ -283,14 +284,20 @@ fn run() -> Result<()> {
             let report =
                 bascule_core::backup::import(&paths, &bascule_core::backup::parse(&text)?)?;
             observe::log(&paths, "accounts.import", serde_json::to_value(&report)?);
-            for n in &report.added {
-                println!("added      {n}  (sign it in: bascule login {n})");
-            }
-            for n in &report.completed {
-                println!("completed  {n}");
-            }
-            for n in &report.unchanged {
-                println!("unchanged  {n}");
+            for i in &report.accounts {
+                let cli = match i.cli {
+                    "restored" => "Claude Code restored",
+                    "here" => "Claude Code already signed in",
+                    "other_machine" => "Claude Code: made on another computer, sign in here",
+                    "expired" => "Claude Code: expired in the backup, sign in again",
+                    _ => "Claude Code: not in the backup",
+                };
+                let web = match i.web {
+                    "restored" => "claude.ai restored",
+                    "here" => "claude.ai already saved",
+                    _ => "no claude.ai session",
+                };
+                println!("{:<10} {:<12} {cli}; {web}", i.status, i.name);
             }
         }
         Cmd::Switch { name, yes } => {

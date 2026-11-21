@@ -514,3 +514,5 @@ svg.brand { fill: currentColor; stroke: none; }
 .hidden-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 13px; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .add-import { justify-self: start; align-self: flex-start; margin-top: 2px; }
+.imp-item { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.imp-text { display: grid; gap: 2px; min-width: 0; }

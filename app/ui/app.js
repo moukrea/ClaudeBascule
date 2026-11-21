@@ -747,28 +747,30 @@ function importBackup() {
       toast(/not a Claude Bascule backup/.test(msg) ? tr("import_bad") : /newer Claude Bascule/.test(msg) ? tr("import_newer") : msg, "bad");
       return;
     }
-    // The service lists new accounts at its next turn.
-    for (let i = 0; i < 20 && !r.added.every((n) => acct(n)); i++) { await refresh(); await new Promise((ok) => setTimeout(ok, 250)); }
+    // The service lists new accounts (and their restored sign-ins) at its next turn.
+    const ready = () => r.accounts.every((x) => acct(x.name) && (x.cli !== "restored" || acct(x.name).place !== "signed_out"));
+    for (let i = 0; i < 20 && !ready(); i++) { await refresh(); await new Promise((ok) => setTimeout(ok, 250)); }
     showImport(r);
   }, { once: true });
   document.body.append(input);
   input.click();
 }
 function showImport(r) {
-  const rows = [];
-  const line = (n, chip, live) => {
-    const a = acct(n) || { name: n, label: n };
-    return el("div", { class: "acct-item web-item" }, avatar(a, "sm"), el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email || "" }),
-      el("span", { class: "chip" + (live ? " live" : ""), text: chip }),
-      live && a.place === "signed_out" ? el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); startLogin(a); } }, icon("key"), tr("sign_in")) : el("span"));
-  };
-  for (const n of r.added) rows.push(line(n, tr("import_added"), true));
-  for (const n of r.completed) rows.push(line(n, tr("import_completed")));
-  for (const n of r.unchanged) rows.push(line(n, tr("import_unchanged")));
+  let m = null;
+  const rows = r.accounts.map((x) => {
+    const a = acct(x.name) || { name: x.name, label: x.name };
+    const toSign = a.place === "signed_out";
+    return el("div", { class: "acct-item imp-item" }, avatar(a, "sm"),
+      el("div", { class: "imp-text" }, el("span", { class: "em ellipsis", text: a.label, "data-tip": a.email || "" }),
+        el("span", { class: "muted small", text: tr("imp_cli_" + x.cli) }), el("span", { class: "muted small", text: tr("imp_web_" + x.web) })),
+      el("span", { class: "chip" + (x.status === "added" ? " live" : ""), text: tr("import_" + x.status) }),
+      toSign ? el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); startLogin(a); } }, icon("key"), tr("sign_in")) : el("span"));
+  });
+  const toSign = r.accounts.some((x) => (acct(x.name) || {}).place === "signed_out");
   const body = rows.length
-    ? el("div", { class: "form" }, el("div", { class: "acct-list" }, rows), r.added.length ? el("p", { class: "muted small", text: tr("import_login_note") }) : null)
+    ? el("div", { class: "form" }, el("div", { class: "acct-list" }, rows), toSign ? el("p", { class: "muted small", text: tr("import_login_note") }) : null)
     : el("p", { text: tr("import_none") });
-  const m = modal({ title: tr("import_title"), body, actions: [{ label: tr("close"), primary: true, onClick: (mm) => mm.close() }] });
+  m = modal({ title: tr("import_title"), body, actions: [{ label: tr("close"), primary: true, onClick: (mm) => mm.close() }] });
 }
 function openAddAccount() {
   const input = el("input", { type: "email", placeholder: tr("add_ph"), autocomplete: "off", spellcheck: "false" });
