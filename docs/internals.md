@@ -98,12 +98,14 @@ to the service, and long-polls `web.next` for commands (`switch`, `login`).
 ```
 
 `claude_code` is the account's `claudeAiOauth` and `oauthAccount` (Claude Code's own place for the
-active account, its vault entry otherwise). A refresh token has one live copy, so an import puts
-it back only when the backup's `machine` is this computer and user, the account has no sign-in
-here (deleted since, or signed out) and the refresh token has not expired; a token renewed since
-the export is refused by Anthropic at the next refresh and the account shows as signed out. An
-import adds missing accounts, keeps the rotation membership and only fills what an existing
-account lacks (sign-in, session, display name, icon).
+active account, its vault entry otherwise). An import puts it back when the account has no
+sign-in here and the refresh token has not expired; a sign-in already here is never replaced.
+Each refresh returns a new refresh token (observed on 2026-11-21 with Claude Code 2.1.330: the
+fingerprint changed, the refresh expiry stayed), so a backup's sign-in works until the original
+is renewed, and two computers holding the same one end with one signed out at the first renewal.
+`machine` (hash of the machine id and home folder) only tells the report that it came from
+another computer. An import adds missing accounts, keeps the rotation membership and only fills
+what an existing account lacks (sign-in, session, display name, icon).
 
 ## For other programs
 

@@ -99,11 +99,12 @@ saves a JSON file in your Downloads folder: each account with its name, icon, pl
 rotation, claude.ai session and Claude Code sign-in. **Import a backup** (same place, or in
 **Add an account**) adds the accounts that are missing and never overwrites what is already here.
 
-The file holds those accounts' sign-ins: keep it like a password. Claude Code renews its sign-in
-every few hours and each renewal retires the previous one, so the sign-in in a backup comes back
-on the same computer as long as it was not renewed since the export (for example, an account
-deleted right after). Another computer never takes it over, since that would sign this one out:
-sign the account in there once. From a terminal: `bascule export` and `bascule import <file>`.
+The file holds those accounts' sign-ins: keep it like a password. An import puts an account's
+Claude Code sign-in back when it has none on this computer. Claude Code renews its sign-in every
+few hours and each renewal retires the previous one: the sign-in in a backup works as long as it
+was not renewed since the export, and when two computers hold the same one, the first to renew
+keeps it and the other has to sign in again. From a terminal: `bascule export` and
+`bascule import <file>`.
 
 ## Uninstall
 

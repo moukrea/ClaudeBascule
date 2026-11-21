@@ -2,11 +2,13 @@
 //! (display name, icon, rotation), its claude.ai session (the browser cookies Claude Bascule keeps
 //! for it) and its Claude Code sign-in.
 //!
-//! A refresh token must have one live copy: the first refresh by one holder invalidates the
-//! others. So the Claude Code sign-in of a backup is only put back on the computer (and user) that
-//! made it, and only for an account that has no sign-in there any more (deleted since, or signed
-//! out). It works as long as nothing renewed that sign-in after the export; otherwise the account
-//! just shows as signed out. Another computer never takes it over: it would sign this one out.
+//! An import puts a backup's Claude Code sign-in back for an account that has none here (deleted
+//! since, signed out, or new on this computer); a sign-in already here is never replaced. Claude
+//! Code renews a sign-in every few hours and each renewal retires the previous refresh token
+//! (observed: the refresh token changes at every refresh). So a backup's sign-in works as long as
+//! nothing renewed it since the export, and when two computers hold the same one, the first to
+//! renew keeps it and the other must sign in again. The report says when it came from another
+//! computer.
 
 use crate::config::{AccountList, Settings};
 use crate::paths::Paths;
@@ -76,8 +78,8 @@ pub struct Item {
     pub name: String,
     /// `added`, `completed` (it received something it lacked) or `unchanged`.
     pub status: &'static str,
-    /// Claude Code's sign-in: `restored`, `here` (this computer already has one), `other_machine`
-    /// (made elsewhere: sign in here), `expired`, or `none` (not in the backup).
+    /// Claude Code's sign-in: `restored`, `restored_elsewhere` (restored from another computer's
+    /// backup), `here` (this computer already has one), `expired`, or `none` (not in the backup).
     pub cli: &'static str,
     /// The claude.ai session: `restored`, `here` (one is already saved here) or `none`.
     pub web: &'static str,
@@ -221,9 +223,6 @@ fn restore_cli(
     if active || slot.oauth()?.is_some() {
         return Ok("here");
     }
-    if backup.machine.is_empty() || backup.machine != crate::platform::machine_key(&paths.home) {
-        return Ok("other_machine");
-    }
     let same_email = c
         .account
         .get("emailAddress")
@@ -242,7 +241,11 @@ fn restore_cli(
     crate::store::private_dir(&slot.dir)?;
     slot.set_oauth(Some(&c.oauth))?;
     slot.set_account(Some(&c.account))?;
-    Ok("restored")
+    if backup.machine.is_empty() || backup.machine != crate::platform::machine_key(&paths.home) {
+        Ok("restored_elsewhere")
+    } else {
+        Ok("restored")
+    }
 }
 
 /// Add the backup's accounts that are not here, and give the ones already here what they lack.
@@ -276,7 +279,7 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
             active.as_deref() == Some(name.as_str()),
             now_ms,
         )?;
-        changed |= cli == "restored";
+        changed |= cli.starts_with("restored");
         let mut web_done = "none";
         if let Some(w) = &e.claude_ai {
             let cookies = web::session_cookies(&w.cookies);
@@ -500,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn other_computer_never_takes_the_sign_in() {
+    fn another_computer_takes_the_sign_in_when_it_has_none() {
         let src = Tmp::new("src");
         let sp = paths(src.path());
         setup(&sp);
@@ -528,11 +531,27 @@ mod tests {
         let pro = item(&r, "pro");
         assert_eq!(
             (pro.status, pro.cli, pro.web),
-            ("completed", "other_machine", "restored")
+            ("completed", "restored_elsewhere", "restored")
         );
-        assert_eq!(item(&r, "perso").cli, "other_machine");
-        assert!(dp.account_slot("pro").oauth().unwrap().is_none());
-        assert!(dp.account_slot("perso").oauth().unwrap().is_none());
+        assert_eq!(item(&r, "perso").cli, "restored_elsewhere");
+        assert_eq!(
+            dp.account_slot("pro").oauth().unwrap().unwrap()["refreshToken"],
+            "RT-pro"
+        );
+        assert_eq!(
+            dp.account_slot("perso").oauth().unwrap().unwrap()["refreshToken"],
+            "RT-perso"
+        );
+        // A sign-in already on this computer is never replaced.
+        dp.account_slot("pro")
+            .set_oauth(Some(&oauth("RT-local")))
+            .unwrap();
+        let r = import(&dp, &parse(&text).unwrap()).unwrap();
+        assert_eq!(item(&r, "pro").cli, "here");
+        assert_eq!(
+            dp.account_slot("pro").oauth().unwrap().unwrap()["refreshToken"],
+            "RT-local"
+        );
         let s = Settings::load(&dp.settings_file()).unwrap();
         assert_eq!(s.display_names["pro"], "Mine", "local name kept");
         assert_eq!(s.avatar_icons["pro"], "briefcase");
