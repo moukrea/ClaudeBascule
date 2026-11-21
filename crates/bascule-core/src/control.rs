@@ -279,6 +279,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             let name = list.add(email)?;
             list.save(&ctx.paths.accounts_file())?;
             log(&ctx.paths, "accounts.add", json!({"name": name}));
+            let _ = ctx.tx.lock().unwrap().send(Cmd::Restate);
             Ok(json!({"name": name}))
         }
         "accounts.export" => {
@@ -328,6 +329,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                 "accounts.import",
                 serde_json::to_value(&report)?,
             );
+            let _ = ctx.tx.lock().unwrap().send(Cmd::Restate);
             Ok(serde_json::to_value(report)?)
         }
         "accounts.remove" => {
@@ -356,6 +358,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             list.remove(name);
             list.save(&ctx.paths.accounts_file())?;
             log(&ctx.paths, "accounts.remove", json!({"name": name}));
+            let _ = ctx.tx.lock().unwrap().send(Cmd::Restate);
             Ok(json!({"ok": true}))
         }
         "jaunt.enroll" => {
