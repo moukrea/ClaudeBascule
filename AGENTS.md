@@ -8,8 +8,9 @@
 - **One live copy of each refresh token.** Copying a refresh token creates two holders; the first
   to refresh invalidates the other. Move tokens, never duplicate them.
 - **Backups** (`backup.rs`, written 0600 on the user's request) carry the claude.ai session and
-  Claude Code's sign-in. An import never overwrites what a machine already has, and puts a sign-in
-  back only on the computer and user that made the backup (another holder would be signed out).
+  Claude Code's sign-in. An import never overwrites what a machine already has; restoring a
+  sign-in on another computer makes a second holder, which the import report says (the owner
+  chose this: the first to renew keeps it).
 - **Never touch the real `~/.claude` (or the macOS keychain) during tests.** Use isolated folders
   through `BASCULE_CLAUDE_DIR`, `BASCULE_STATE`, `BASCULE_VAULT`, `BASCULE_CONFIG`. Record the
   fingerprint of the real credentials before and after any manual test and report a change.

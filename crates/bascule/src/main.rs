@@ -80,16 +80,15 @@ enum Cmd {
         sessions: Vec<String>,
     },
     /// Save accounts to a JSON backup: identity, display name, icon, rotation, claude.ai session
-    /// and Claude Code sign-in (restored only on this computer). Every account when none is
-    /// named; the file goes to the downloads folder unless --out is given.
+    /// and Claude Code sign-in. Every account when none is named; the file goes to the downloads
+    /// folder unless --out is given.
     Export {
         names: Vec<String>,
         #[arg(short, long)]
         out: Option<std::path::PathBuf>,
     },
     /// Add the accounts of a backup made by `bascule export`, and give the accounts already
-    /// here what they lack (nothing here is overwritten). A Claude Code sign-in comes back only
-    /// on the computer that made the backup, for an account without one.
+    /// here what they lack, Claude Code sign-in included (nothing here is overwritten).
     Import { file: std::path::PathBuf },
     /// Effective settings.
     Config,
@@ -288,7 +287,7 @@ fn run() -> Result<()> {
                 let cli = match i.cli {
                     "restored" => "Claude Code restored",
                     "here" => "Claude Code already signed in",
-                    "other_machine" => "Claude Code: made on another computer, sign in here",
+                    "restored_elsewhere" => "Claude Code restored from another computer (if it stays signed in there, the first to renew keeps it)",
                     "expired" => "Claude Code: expired in the backup, sign in again",
                     _ => "Claude Code: not in the backup",
                 };

@@ -748,7 +748,7 @@ function importBackup() {
       return;
     }
     // The service lists new accounts (and their restored sign-ins) at its next turn.
-    const ready = () => r.accounts.every((x) => acct(x.name) && (x.cli !== "restored" || acct(x.name).place !== "signed_out"));
+    const ready = () => r.accounts.every((x) => acct(x.name) && (!x.cli.startsWith("restored") || acct(x.name).place !== "signed_out"));
     for (let i = 0; i < 20 && !ready(); i++) { await refresh(); await new Promise((ok) => setTimeout(ok, 250)); }
     showImport(r);
   }, { once: true });
