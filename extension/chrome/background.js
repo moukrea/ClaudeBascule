@@ -116,7 +116,8 @@ async function handle(cmd) {
       await reloadClaudeTabs();
       await new Promise((r) => setTimeout(r, 1500));
       const r = await capture();
-      ok = !!r && r.account === cmd.to;
+      // claude.ai itself must name the account: a guess from the cookies is not enough.
+      ok = !!r && r.account === cmd.to && r.checked !== false;
       if (!ok) error = "claude.ai did not accept the saved session: sign this account in again in the browser";
     } catch (e) {
       error = String(e);

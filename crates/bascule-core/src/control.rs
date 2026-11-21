@@ -435,6 +435,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                     .unwrap_or(&[]),
             );
             let email = p.get("email").and_then(Value::as_str);
+            let email_given = email.is_some_and(|e| !e.is_empty());
             let signed_in = cookies.iter().any(|c| {
                 matches!(
                     c.get("name").and_then(Value::as_str),
@@ -468,8 +469,9 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
                             .push_back(("web.account".into(), json!({"account": name})));
                     }
                     hub.account = Some(name.clone());
+                    hub.account_checked = email_given;
                     hub.unknown_email = None;
-                    Ok(json!({"account": name}))
+                    Ok(json!({"account": name, "checked": email_given}))
                 }
                 None => {
                     hub.account = None;

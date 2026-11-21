@@ -118,6 +118,8 @@ pub struct WebHub {
     pub version: Option<String>,
     /// The account claude.ai is signed in with in that browser, None when signed out or unknown.
     pub account: Option<String>,
+    /// claude.ai itself named `account` (its email), rather than a guess from the session cookies.
+    pub account_checked: bool,
     /// The email of a session that is not one of the listed accounts.
     pub unknown_email: Option<String>,
     pub last_error: Option<String>,
@@ -342,6 +344,7 @@ pub fn cdp_switch(web: &Arc<Mutex<WebHub>>, paths: &Paths, name: &str) -> Result
         match r {
             Ok(()) => {
                 hub.account = Some(name.clone());
+                hub.account_checked = false;
                 hub.last_error = None;
                 hub.notes
                     .push_back(("web.switched".into(), json!({"account": name})));
@@ -392,6 +395,7 @@ pub fn cdp_login(web: &Arc<Mutex<WebHub>>, paths: &Paths) {
         let mut hub = web.lock().unwrap();
         if let Ok(Some(name)) = &r {
             hub.account = Some(name.clone());
+            hub.account_checked = false;
             hub.notes
                 .push_back(("web.account".into(), json!({"account": name})));
         }
@@ -450,11 +454,43 @@ pub fn start_cic(
             f.stage = "working".into();
             f.id
         };
-        let (web, paths) = (web.clone(), paths.clone());
+        let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());
         std::thread::spawn(move || {
-            // The extension puts claude.ai on the account and opens Claude in Chrome's options.
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            let r = crate::a11y::resign_cic(&email);
+            // The extension puts claude.ai on the account, then reports what claude.ai says.
+            // Claude in Chrome is only touched once claude.ai really is on that account: signing
+            // it out first and finding another account on the consent page would leave it
+            // signed out.
+            let started = std::time::Instant::now();
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let on_target = loop {
+                let here = {
+                    let hub = web.lock().unwrap();
+                    if !hub
+                        .cic_flow
+                        .as_ref()
+                        .is_some_and(|f| f.id == id && f.stage == "working")
+                    {
+                        return;
+                    }
+                    hub.account_checked && hub.account.as_deref() == Some(name.as_str())
+                };
+                if here {
+                    break true;
+                }
+                if started.elapsed() > std::time::Duration::from_secs(20) {
+                    break false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            };
+            let r = if on_target {
+                // Claude in Chrome's options page has had time to open.
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                crate::a11y::resign_cic(&email)
+            } else {
+                Err(anyhow::anyhow!(
+                    "claude.ai did not switch to {email} in the browser (its saved session may have expired: sign this account in to claude.ai again); Claude in Chrome was left as it was"
+                ))
+            };
             let mut hub = web.lock().unwrap();
             if hub
                 .cic_flow
@@ -495,7 +531,9 @@ pub fn start_cic(
             let cdp = guard.as_mut().context("not connected to Chrome")?;
             // The browser's current session is kept for its account first.
             if let Ok(Some(current)) = cdp_capture(cdp, &paths, now_ms) {
-                web.lock().unwrap().account = Some(current);
+                let mut hub = web.lock().unwrap();
+                hub.account = Some(current);
+                hub.account_checked = false;
             }
             let session = load(&paths, &name).with_context(|| {
                 format!("no claude.ai session saved for {name}: sign it in in the browser once")
