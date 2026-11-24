@@ -100,8 +100,9 @@ launchers), the service drives Claude in Chrome through the desktop's accessibil
 screen reader (`a11y_linux.py`, plain D-Bus calls through Gio; it reads only the pages shown,
 found by their `URI` document attribute):
 
-1. The Connector puts claude.ai on the target account; the service opens Claude in Chrome's
-   options page and waits until claude.ai is on that account (or signed out).
+1. The Connector puts claude.ai on the target account (or signs it out, its session saved first,
+   when none is saved for the target); the service opens Claude in Chrome's options page and
+   waits until claude.ai is on that account (or signed out).
 2. The helper presses **Log out**, then **Log in**, which opens claude.ai's consent page.
 3. It presses **Authorize** only when that page names the target's email. When claude.ai turns out
    to be signed out, its sign-in page shows instead: the service notifies the user, who has ten
