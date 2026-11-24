@@ -108,8 +108,10 @@ found by their `URI` document attribute):
    to be signed out, its sign-in page shows instead: the service notifies the user, who has ten
    minutes to sign in there; the helper then presses **Log in** again if needed and approves.
 
-A move that could not finish for the active account is tried again when claude.ai is next signed
-in with it.
+Whenever claude.ai is signed in with Claude Code's account while Claude in Chrome is on another
+one (a move that failed, a service restarted midway), the move is made again: at once after a new
+claude.ai sign-in, else at most every 30 minutes. A Claude in Chrome the user moved by hand to
+another account stays there until the next switch.
 
 ## Backups
 

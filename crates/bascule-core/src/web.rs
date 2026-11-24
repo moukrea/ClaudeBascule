@@ -146,6 +146,9 @@ pub struct WebHub {
     /// Bascule (it cannot be read from the extension), and a move in progress.
     pub cic_account: Option<String>,
     pub cic_flow: Option<CicFlow>,
+    /// The user moved Claude in Chrome to an account other than Claude Code's since the last
+    /// switch: it is left there.
+    pub cic_by_hand: bool,
     /// The browser driven through its DevTools protocol (one connection kept open), and its state:
     /// "off" (remote debugging not allowed), "available", "connecting", "connected", or an error.
     pub cdp: Arc<Mutex<Option<crate::cdp::Cdp>>>,
@@ -168,6 +171,8 @@ pub struct CicFlow {
     pub error: Option<String>,
     /// "auto" (Chrome driven by Claude Bascule) or "guided".
     pub mode: String,
+    /// When it ended (done or failed).
+    pub ended_ms: Option<i64>,
 }
 
 /// A move still in progress.
@@ -240,6 +245,7 @@ impl WebHub {
             stage: "waiting".into(),
             error: None,
             mode: "guided".into(),
+            ended_ms: None,
         });
         self.queue
             .retain(|c| c.get("type").and_then(Value::as_str) != Some("switch"));
@@ -264,6 +270,7 @@ impl WebHub {
         self.queue.push_back(json!({"type": "cic_cleanup"}));
         flow.stage = if ok { "done" } else { "failed" }.into();
         flow.error = error;
+        flow.ended_ms = Some(crate::observe::now_ms());
         self.notes.push_back((
             if ok { "cic.switched" } else { "cic.failed" }.into(),
             json!({"account": flow.to, "error": flow.error}),
@@ -564,6 +571,7 @@ pub fn start_cic(
             stage: "working".into(),
             error: None,
             mode: "auto".into(),
+            ended_ms: None,
         });
     }
     let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());

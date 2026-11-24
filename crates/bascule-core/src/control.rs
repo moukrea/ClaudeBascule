@@ -578,7 +578,10 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             if !ctx.web.lock().unwrap().connected(now_ms()) && crate::cdp::endpoint().is_none() {
                 bail!("the browser extension is not connected");
             }
+            let list = AccountList::load(&ctx.paths.accounts_file())?;
+            let active = crate::vault::active_account(&ctx.paths, &list).map(|a| a.name.clone());
             let mode = crate::web::start_cic(&ctx.web, &ctx.paths, to, false, now_ms())?;
+            ctx.web.lock().unwrap().cic_by_hand = active.as_deref() != Some(to);
             Ok(json!({"mode": mode}))
         }
         // Save the browser's current claude.ai session for its account (through Chrome's DevTools).
