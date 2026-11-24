@@ -461,6 +461,7 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             });
             let mut hub = ctx.web.lock().unwrap();
             hub.seen_ms = now_ms();
+            hub.captured_ms = now_ms();
             if !signed_in {
                 hub.account = None;
                 hub.unknown_email = None;

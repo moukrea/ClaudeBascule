@@ -149,6 +149,8 @@ pub struct WebHub {
     /// The user moved Claude in Chrome to an account other than Claude Code's since the last
     /// switch: it is left there.
     pub cic_by_hand: bool,
+    /// When the browser last reported its claude.ai session (0: not since the service started).
+    pub captured_ms: i64,
     /// The browser driven through its DevTools protocol (one connection kept open), and its state:
     /// "off" (remote debugging not allowed), "available", "connecting", "connected", or an error.
     pub cdp: Arc<Mutex<Option<crate::cdp::Cdp>>>,

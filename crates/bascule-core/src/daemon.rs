@@ -146,6 +146,8 @@ pub struct Daemon {
     /// The last account Claude in Chrome was moved to without the user asking, and when: tried
     /// again after 30 minutes, or at once when claude.ai is newly signed in with it.
     cic_tried: Option<(String, i64)>,
+    /// The last time claude.ai, found signed out, was put on the active account's saved session.
+    web_tried: Option<(String, i64)>,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -308,6 +310,7 @@ impl Daemon {
             a11y_checked_ms: 0,
             follow_override: None,
             cic_tried: None,
+            web_tried: None,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1382,13 +1385,33 @@ impl Daemon {
     /// while Claude in Chrome is on another one (a move that failed, or a service restarted midway),
     /// it is moved, unless the user moved it by hand since the last switch.
     fn cic_reconcile(&mut self) {
-        let (_, cic) = self
+        let (web, cic) = self
             .follow_override
             .unwrap_or((self.settings.web_follow, self.settings.cic_follow));
         let Some(active) = self.active() else {
             return;
         };
         let now = now_ms();
+        // claude.ai signed out in the browser (a dead session, a browser just restarted): it gets
+        // the active account's saved session, once per 30 minutes or per new sign-in.
+        if web
+            && !self
+                .web_tried
+                .as_ref()
+                .is_some_and(|(a, t)| *a == active && now - t < 1_800_000)
+        {
+            let mut hub = self.web.lock().unwrap();
+            if hub.connected(now)
+                && hub.captured_ms > 0
+                && hub.account.is_none()
+                && !hub.cic_flow.as_ref().is_some_and(crate::web::moving)
+                && crate::web::has(&self.paths, &active)
+            {
+                self.web_tried = Some((active.clone(), now));
+                let _ = hub.push_switch(&self.paths, &active);
+                return;
+            }
+        }
         {
             let hub = self.web.lock().unwrap();
             let due = cic
@@ -1644,6 +1667,7 @@ impl Daemon {
                 // claude.ai newly signed in with an account: Claude in Chrome may follow at once.
                 if kind == "web.account" {
                     self.cic_tried = None;
+                    self.web_tried = None;
                 }
                 if kind == "cic.sign_in" {
                     let to = data["account"].as_str().unwrap_or_default().to_string();
