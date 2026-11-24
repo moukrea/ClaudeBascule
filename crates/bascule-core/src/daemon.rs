@@ -143,6 +143,9 @@ pub struct Daemon {
     update_tried_ms: i64,
     a11y_checked_ms: i64,
     follow_override: Option<(bool, bool)>,
+    /// The active account Claude in Chrome could not follow (claude.ai was signed out or on
+    /// another account): moved again once claude.ai is signed in with it.
+    cic_pending: Option<String>,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -172,6 +175,22 @@ fn tr(lang: &str, key: &str) -> String {
             "Para pasar a {a}: Log out y luego Sign in en la extensión (sin código).",
             "Per passare a {a}: Log out e poi Sign in nell'estensione (senza codice).",
             "Para passar para {a}: Log out e depois Sign in na extensão (sem código).",
+        ],
+        "cic_sign_in_title" => [
+            "claude.ai: sign in to finish",
+            "claude.ai : connexion pour terminer",
+            "claude.ai: zum Abschließen anmelden",
+            "claude.ai: inicia sesión para terminar",
+            "claude.ai: accedi per finire",
+            "claude.ai: inicie sessão para terminar",
+        ],
+        "cic_sign_in_body" => [
+            "claude.ai is signed out in Chrome: sign in to {a} in the tab that opened. Claude Bascule then moves Claude in Chrome by itself.",
+            "claude.ai est déconnecté dans Chrome : connectez {a} dans l'onglet ouvert. Claude Bascule bascule ensuite Claude in Chrome tout seul.",
+            "claude.ai ist in Chrome abgemeldet: Melden Sie {a} im geöffneten Tab an. Danach wechselt Claude Bascule Claude in Chrome selbst.",
+            "claude.ai no tiene sesión en Chrome: inicia sesión con {a} en la pestaña abierta. Claude Bascule cambia después Claude in Chrome solo.",
+            "claude.ai è disconnesso in Chrome: accedi con {a} nella scheda aperta. Poi Claude Bascule sposta da solo Claude in Chrome.",
+            "O claude.ai está sem sessão no Chrome: inicie sessão com {a} no separador aberto. Depois o Claude Bascule muda o Claude in Chrome sozinho.",
         ],
         "resume_one" => [
             "1 session to resume",
@@ -288,6 +307,7 @@ impl Daemon {
             update_tried_ms: 0,
             a11y_checked_ms: 0,
             follow_override: None,
+            cic_pending: None,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1301,10 +1321,7 @@ impl Daemon {
         if web && extension && hub.account.as_deref() != Some(to) {
             missing |= hub.push_switch(&self.paths, to).is_err();
         }
-        let busy = hub
-            .cic_flow
-            .as_ref()
-            .is_some_and(|f| f.stage == "waiting" || f.stage == "working");
+        let busy = hub.cic_flow.as_ref().is_some_and(crate::web::moving);
         let move_cic = cic && hub.cic_account.as_deref() != Some(to) && !busy;
         drop(hub);
         if move_cic {
@@ -1590,6 +1607,29 @@ impl Daemon {
             self.a11y_tick();
             let notes: Vec<(String, Value)> = self.web.lock().unwrap().notes.drain(..).collect();
             for (kind, data) in notes {
+                let account = data["account"].as_str().map(str::to_string);
+                match kind.as_str() {
+                    "cic.failed" if account.is_some() && account == self.active() => {
+                        self.cic_pending = account.clone();
+                    }
+                    "cic.switched" => self.cic_pending = None,
+                    "web.account" if account.is_some() && account == self.cic_pending => {
+                        self.cic_pending = None;
+                        if account == self.active() {
+                            self.web_follow(account.as_deref().unwrap_or_default());
+                        }
+                    }
+                    _ => {}
+                }
+                if kind == "cic.sign_in" {
+                    let to = data["account"].as_str().unwrap_or_default().to_string();
+                    let lang = self.lang();
+                    self.notify(
+                        &tr(&lang, "cic_sign_in_title"),
+                        &tr(&lang, "cic_sign_in_body").replace("{a}", &self.label(&to)),
+                        false,
+                    );
+                }
                 self.event(&kind, data);
             }
             while let Ok(cmd) = self.rx.try_recv() {

@@ -69,6 +69,19 @@ pub fn session_cookies(cookies: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// Whether two sets of cookies carry the same claude.ai session (the same session key).
+pub fn same_session(a: &[Value], b: &[Value]) -> bool {
+    let key = |c: &[Value]| {
+        ["sessionKeyV3", "sessionKey"].iter().find_map(|k| {
+            c.iter()
+                .find(|x| x.get("name").and_then(Value::as_str) == Some(*k))
+                .and_then(|x| x.get("value").and_then(Value::as_str))
+                .map(str::to_string)
+        })
+    };
+    key(a).is_some_and(|k| Some(k) == key(b))
+}
+
 /// Which listed account a browser session belongs to: by the email the extension read, else by
 /// the `lastActiveOrg` cookie against each account's organisation (from its `.claude.json`).
 pub fn account_for(
@@ -149,11 +162,17 @@ pub struct CicFlow {
     pub to: String,
     pub restore: Option<String>,
     pub started_ms: i64,
-    /// "waiting" (the user signs out and in), "working" (Claude Bascule does it), "done", "failed".
+    /// "waiting" (the user signs out and in), "working" (Claude Bascule does it), "sign_in"
+    /// (Claude Bascule waits for the user to sign in to claude.ai, then goes on), "done", "failed".
     pub stage: String,
     pub error: Option<String>,
     /// "auto" (Chrome driven by Claude Bascule) or "guided".
     pub mode: String,
+}
+
+/// A move still in progress.
+pub fn moving(f: &CicFlow) -> bool {
+    matches!(f.stage.as_str(), "waiting" | "working" | "sign_in")
 }
 
 fn cic_file(paths: &Paths) -> PathBuf {
@@ -461,45 +480,59 @@ pub fn start_cic(
         let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());
         std::thread::spawn(move || {
             // The extension puts claude.ai on the account, then reports what claude.ai says.
-            // Claude in Chrome is only touched once claude.ai really is on that account: signing
-            // it out first and finding another account on the consent page would leave it
-            // signed out.
+            // Claude in Chrome is only touched once claude.ai is on that account, or signed out
+            // (the user then signs in on claude.ai's page, and the move goes on): signing it out
+            // while claude.ai is on another account would leave it signed out.
             let started = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_secs(2));
-            let on_target = loop {
-                let here = {
+            let other = loop {
+                let (here, current) = {
                     let hub = web.lock().unwrap();
                     if !hub
                         .cic_flow
                         .as_ref()
-                        .is_some_and(|f| f.id == id && f.stage == "working")
+                        .is_some_and(|f| f.id == id && moving(f))
                     {
                         return;
                     }
-                    hub.account_checked && hub.account.as_deref() == Some(name.as_str())
+                    (
+                        hub.account.as_deref() == Some(name.as_str()),
+                        hub.account.clone(),
+                    )
                 };
                 if here {
-                    break true;
+                    break None;
                 }
                 if started.elapsed() > std::time::Duration::from_secs(20) {
-                    break false;
+                    break current;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(400));
             };
-            let r = if on_target {
-                // Claude in Chrome's options page has had time to open.
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                crate::a11y::resign_cic(&email)
-            } else {
-                Err(anyhow::anyhow!(
-                    "claude.ai did not switch to {email} in the browser (its saved session may have expired: sign this account in to claude.ai again); Claude in Chrome was left as it was"
-                ))
+            let r = match other {
+                None => {
+                    // Claude in Chrome's options page has had time to open.
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    crate::a11y::resign_cic(&email, |stage| {
+                        let mut hub = web.lock().unwrap();
+                        if let Some(f) = hub.cic_flow.as_mut().filter(|f| f.id == id && moving(f)) {
+                            f.stage = if stage == "sign_in" { "sign_in" } else { "working" }.into();
+                            if stage == "sign_in" {
+                                let to = f.to.clone();
+                                hub.notes
+                                    .push_back(("cic.sign_in".into(), json!({"account": to})));
+                            }
+                        }
+                    })
+                }
+                Some(other) => Err(anyhow::anyhow!(
+                    "claude.ai stayed on {other} in the browser: {name}'s saved session has expired (sign {email} in to claude.ai once); Claude in Chrome was left as it was"
+                )),
             };
             let mut hub = web.lock().unwrap();
             if hub
                 .cic_flow
                 .as_ref()
-                .is_some_and(|f| f.id == id && f.stage == "working")
+                .is_some_and(|f| f.id == id && moving(f))
             {
                 hub.queue.push_back(json!({"type": "cic_stop"}));
                 hub.end_cic(&paths, r.is_ok(), r.err().map(|e| format!("{e:#}")));
@@ -509,11 +542,7 @@ pub fn start_cic(
     }
     {
         let mut hub = web.lock().unwrap();
-        if hub
-            .cic_flow
-            .as_ref()
-            .is_some_and(|f| f.stage == "waiting" || f.stage == "working")
-        {
+        if hub.cic_flow.as_ref().is_some_and(moving) {
             anyhow::bail!("Claude in Chrome is already being moved");
         }
         hub.cic_flow = Some(CicFlow {
@@ -587,5 +616,18 @@ mod tests {
         assert!(kept
             .iter()
             .all(|k| k["domain"].as_str().unwrap().ends_with("claude.ai")));
+    }
+
+    #[test]
+    fn same_session_compares_the_session_key() {
+        let a = vec![
+            json!({"name": "sessionKey", "value": "k1"}),
+            json!({"name": "lastActiveOrg", "value": "o"}),
+        ];
+        let b = vec![json!({"name": "sessionKey", "value": "k1"})];
+        let c = vec![json!({"name": "sessionKey", "value": "k2"})];
+        assert!(same_session(&a, &b));
+        assert!(!same_session(&a, &c));
+        assert!(!same_session(&[], &[]));
     }
 }

@@ -89,8 +89,12 @@ or on its own from an account's menu. It needs its small companion extension,
 3. Sign each account in to claude.ai once in that browser (the button **Sign in in the browser**
    opens the page). Claude Bascule keeps each session in its private folder, like the tokens.
 
-The Claude in Chrome extension keeps its own sign-in: it follows the browser's account the next
-time it signs in; sign out and in again from its panel to make it follow at once (no code needed).
+The Claude in Chrome extension keeps its own sign-in, and Claude Code's browser tools only reach
+it when it is signed in with the same account. On Linux, after **Settings → Browser → Prepare
+Chrome** and one restart of Chrome, Claude Bascule signs it out and in again by itself at each
+switch. If claude.ai turns out to be signed out in that browser, Claude Bascule asks you to sign
+in on the page it opened, then finishes on its own. Elsewhere, sign it out and in again from its
+panel (no code needed).
 
 ## Back up your accounts
 
@@ -100,7 +104,9 @@ rotation, claude.ai session and Claude Code sign-in. **Import a backup** (same p
 **Add an account**) adds the accounts that are missing and never overwrites what is already here.
 
 The file holds those accounts' sign-ins: keep it like a password. An import puts an account's
-Claude Code sign-in back when it has none on this computer. Claude Code renews its sign-in every
+Claude Code sign-in back when it has none on this computer. The claude.ai session only comes back
+on the computer that made the backup: claude.ai refuses a session moved to another browser, so
+on another computer sign the account in to claude.ai once there. Claude Code renews its sign-in every
 few hours and each renewal retires the previous one: the sign-in in a backup works as long as it
 was not renewed since the export, and when two computers hold the same one, the first to renew
 keeps it and the other has to sign in again. From a terminal: `bascule export` and

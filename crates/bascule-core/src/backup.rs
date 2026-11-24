@@ -81,7 +81,9 @@ pub struct Item {
     /// Claude Code's sign-in: `restored`, `restored_elsewhere` (restored from another computer's
     /// backup), `here` (this computer already has one), `expired`, or `none` (not in the backup).
     pub cli: &'static str,
-    /// The claude.ai session: `restored`, `here` (one is already saved here) or `none`.
+    /// The claude.ai session: `restored`, `here` (one is already saved here), `other_machine`
+    /// (made in another computer's browser: claude.ai refuses a session copied to another browser,
+    /// so it is not restored) or `none`.
     pub web: &'static str,
 }
 
@@ -264,6 +266,8 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
     };
     let mut report = Report::default();
     let mut settings_changed = false;
+    let same_machine =
+        !backup.machine.is_empty() && backup.machine == crate::platform::machine_key(&paths.home);
     for e in &backup.accounts {
         let existing = list.by_email(&e.email).map(|a| a.name.clone());
         let name = match &existing {
@@ -285,6 +289,10 @@ pub fn import(paths: &Paths, backup: &Backup) -> Result<Report> {
             let cookies = web::session_cookies(&w.cookies);
             if !cookies.is_empty() && web::has(paths, &name) {
                 web_done = "here";
+            } else if !cookies.is_empty() && !same_machine {
+                // claude.ai ties a session to the browser that signed in: put in another browser,
+                // it is refused, and that browser ends up signed out.
+                web_done = "other_machine";
             } else if !cookies.is_empty() {
                 web::save(
                     paths,
@@ -531,7 +539,7 @@ mod tests {
         let pro = item(&r, "pro");
         assert_eq!(
             (pro.status, pro.cli, pro.web),
-            ("completed", "restored_elsewhere", "restored")
+            ("completed", "restored_elsewhere", "other_machine")
         );
         assert_eq!(item(&r, "perso").cli, "restored_elsewhere");
         assert_eq!(
@@ -557,7 +565,8 @@ mod tests {
         assert_eq!(s.avatar_icons["pro"], "briefcase");
         // pro and perso were in rotation, spare was not.
         assert_eq!(s.rotation, ["pro", "perso"]);
-        assert_eq!(web::load(&dp, "pro").unwrap().cookies.len(), 1);
+        // claude.ai refuses a session copied into another browser: it stays behind.
+        assert!(web::load(&dp, "pro").is_none());
     }
 
     #[test]

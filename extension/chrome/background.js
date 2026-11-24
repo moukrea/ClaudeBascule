@@ -56,25 +56,38 @@ async function sessionCookies() {
   return all.filter((c) => SESSION.includes(c.name) && c.domain.replace(/^\./, "") === "claude.ai");
 }
 
-// The signed-in account's email, read from claude.ai with the browser's own session.
-async function accountEmail() {
-  try {
-    const r = await fetch("https://claude.ai/api/account", { credentials: "include", headers: { accept: "application/json" } });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j.email_address || (j.account && j.account.email_address) || null;
-  } catch (e) {
-    return null;
+// Who claude.ai says is signed in with the browser's own session: { email, session } where session
+// is "valid", "invalid" (claude.ai no longer accepts it: the browser is in fact signed out) or
+// "unknown" (no clear answer, such as a challenge page).
+async function claudeAccount() {
+  for (const path of ["/api/account", "/api/bootstrap"]) {
+    try {
+      const r = await fetch("https://claude.ai" + path, { credentials: "include", headers: { accept: "application/json" } });
+      if (!(r.headers.get("content-type") || "").includes("json")) continue;
+      const j = await r.json();
+      if (r.ok) {
+        const a = path === "/api/bootstrap" ? j.account : j;
+        const email = a && (a.email_address || (a.account && a.account.email_address));
+        if (email) return { email, session: "valid" };
+        if (path === "/api/bootstrap") return { email: null, session: "invalid" };
+        continue;
+      }
+      const code = j && j.error && j.error.details && j.error.details.error_code;
+      if (r.status === 401 || code === "account_session_invalid") return { email: null, session: "invalid" };
+    } catch (e) {
+      // network trouble: the other address, then "unknown"
+    }
   }
+  return { email: null, session: "unknown" };
 }
 
 async function capture() {
   if (!port || applying) return null;
   const cookies = await sessionCookies();
   const signedIn = cookies.some((c) => c.name === "sessionKey" || c.name === "sessionKeyV3");
-  const email = signedIn ? await accountEmail() : null;
+  const { email, session } = signedIn ? await claudeAccount() : { email: null, session: "none" };
   try {
-    return await rpc("web.capture", { email, cookies });
+    return await rpc("web.capture", { email, cookies, session });
   } catch (e) {
     return null;
   }
@@ -109,6 +122,7 @@ async function handle(cmd) {
     let ok = false, error = null;
     try {
       await capture(); // the outgoing account's latest session is kept
+      const before = await sessionCookies();
       applying = true;
       await clearSession();
       await setCookies(cmd.cookies || []);
@@ -118,7 +132,19 @@ async function handle(cmd) {
       const r = await capture();
       // claude.ai itself must name the account: a guess from the cookies is not enough.
       ok = !!r && r.account === cmd.to && r.checked !== false;
-      if (!ok) error = "claude.ai did not accept the saved session: sign this account in again in the browser";
+      if (!ok) {
+        error = "claude.ai did not accept the saved session: sign this account in again in the browser";
+        if (r && r.expired) {
+          // That session is dead: the browser goes back to the account it had rather than
+          // staying signed out.
+          applying = true;
+          await clearSession();
+          await setCookies(before);
+          applying = false;
+          await reloadClaudeTabs();
+          setTimeout(capture, 1500);
+        }
+      }
     } catch (e) {
       error = String(e);
     } finally {
