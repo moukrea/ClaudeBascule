@@ -75,14 +75,43 @@ which is `bascule` itself (started with the extension's origin as argument; see
 `crates/bascule/src/native_host.rs`). The host relays `web.hello`, `web.capture` and `web.result`
 to the service, and long-polls `web.next` for commands (`switch`, `login`).
 
-- A capture (sent when the session cookies change) is matched to an account by the email
-  `https://claude.ai/api/account` returns, else by `lastActiveOrg` against each account's
-  `organizationUuid`, and saved to `accounts/<id>/web-session.json` (private).
+- A capture (sent when the session cookies change) asks claude.ai who is signed in
+  (`/api/account`, then `/api/bootstrap` when the first answers with a challenge page), is matched
+  to an account by that email, else by `lastActiveOrg` against each account's `organizationUuid`,
+  and saved to `accounts/<id>/web-session.json` (private).
+- claude.ai can stop accepting a session that still has its cookies (`401`, or `403` with
+  `account_session_invalid`; `/api/bootstrap` then has no account): the browser is in fact signed
+  out. The capture says so (`session: "invalid"`), the service shows claude.ai as signed out and
+  forgets the vault's copy of that same session, since switching to it would sign the browser out.
 - A switch saves the browser's current session, removes the session cookies, sets the target's,
-  reloads claude.ai tabs and checks the result.
+  reloads claude.ai tabs and checks that claude.ai names the account. When the target's session
+  turns out dead, the browser goes back to the session it had.
+- A claude.ai session belongs to the browser that signed in: copied into another browser it is
+  refused (seen on 2026-11-24). Sessions never move between browsers or computers.
 - The Claude in Chrome extension signs in on its own (OAuth with PKCE through
   `claude.ai/oauth/authorize`, tokens in its own storage): it follows the browser's session at its
-  next (silent) sign-in only.
+  next sign-in only. Claude Code's browser tools only reach a Claude in Chrome signed in with the
+  same account, so Claude in Chrome follows each switch.
+
+### Moving Claude in Chrome without the user (Linux)
+
+With Chrome started with `--force-renderer-accessibility` (Claude Bascule adds it to the browsers'
+launchers), the service drives Claude in Chrome through the desktop's accessibility bus, like a
+screen reader (`a11y_linux.py`, plain D-Bus calls through Gio; it reads only the pages shown,
+found by their `URI` document attribute):
+
+1. The Connector puts claude.ai on the target account (or signs it out, its session saved first,
+   when none is saved for the target); the service opens Claude in Chrome's options page and
+   waits until claude.ai is on that account (or signed out).
+2. The helper presses **Log out**, then **Log in**, which opens claude.ai's consent page.
+3. It presses **Authorize** only when that page names the target's email. When claude.ai turns out
+   to be signed out, its sign-in page shows instead: the service notifies the user, who has ten
+   minutes to sign in there; the helper then presses **Log in** again if needed and approves.
+
+Whenever claude.ai is signed in with Claude Code's account while Claude in Chrome is on another
+one (a move that failed, a service restarted midway), the move is made again: at once after a new
+claude.ai sign-in, else at most every 30 minutes. A Claude in Chrome the user moved by hand to
+another account stays there until the next switch.
 
 ## Backups
 
@@ -103,8 +132,9 @@ sign-in here and the refresh token has not expired; a sign-in already here is ne
 Each refresh returns a new refresh token (observed on 2026-11-21 with Claude Code 2.1.330: the
 fingerprint changed, the refresh expiry stayed), so a backup's sign-in works until the original
 is renewed, and two computers holding the same one end with one signed out at the first renewal.
-`machine` (hash of the machine id and home folder) only tells the report that it came from
-another computer. An import adds missing accounts, keeps the rotation membership and only fills
+`machine` (hash of the machine id and home folder) tells the report that it came from another
+computer, and keeps the claude.ai session on the computer that made it (claude.ai refuses a
+session copied into another browser). An import adds missing accounts, keeps the rotation membership and only fills
 what an existing account lacks (sign-in, session, display name, icon).
 
 ## For other programs

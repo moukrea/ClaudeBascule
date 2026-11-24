@@ -630,7 +630,8 @@ const webHas = (name) => ((S.web && S.web.sessions) || []).includes(name);
 // The browser is reachable through the extension or through Chrome control (remote debugging).
 const webOn = () => !!(S.web && (S.web.connected || S.web.cdp === "connected" || S.web.cdp === "available"));
 const webCan = (a) => !!(webOn() && webHas(a.name) && S.web.account !== a.name);
-const cicCan = (a) => !!(webOn() && webHas(a.name) && S.web.cic_account !== a.name && !(S.web.cic_flow && (S.web.cic_flow.stage === "waiting" || S.web.cic_flow.stage === "working")));
+const cicMoving = (f) => !!f && ["waiting", "working", "sign_in"].includes(f.stage);
+const cicCan = (a) => !!(webOn() && webHas(a.name) && S.web.cic_account !== a.name && !cicMoving(S.web.cic_flow));
 const OS_TIP = { linux: "guide_tip_linux", macos: "guide_tip_macos", windows: "guide_tip_windows" };
 
 // Install guide for the browser extension: opens the browser's extensions page, says what to do on
@@ -674,13 +675,15 @@ function paintGuideStatus() {
 
 // Moving Claude in Chrome: Claude Bascule prepares claude.ai, the user signs the extension out and
 // in again, Claude Bascule notices and puts claude.ai back.
-let cicModal = null, cicShown = 0;
+let cicModal = null, cicShown = 0, cicSignShown = 0;
 function startCic(a) {
   act(() => call("web.cic_begin", { to: a.name }));
 }
 function cicView(f) {
   if (f.stage === "done") return el("div", { class: "ok-line" }, icon("check"), tr("cic_ok", { a: lab(f.to) }));
   if (f.stage === "failed") return el("p", { text: tr("cic_fail", { e: f.error || "?" }) });
+  if (f.stage === "sign_in") return el("div", { class: "upd" }, el("p", { text: tr("cic_sign_in", { a: lab(f.to) }) }),
+    el("div", { class: "wait" }, el("span", { class: "spinner" }), tr("cic_wait")));
   if (f.mode === "auto") return el("div", { class: "upd" }, el("div", { class: "wait" }, el("span", { class: "spinner" }), tr("cic_auto", { a: lab(f.to) })),
     el("div", { class: "progress indeterminate" }, el("span")), el("p", { class: "muted small", text: tr("cic_auto_note") }));
   return el("div", { class: "steps web-steps" },
@@ -693,8 +696,10 @@ function cicView(f) {
 function syncCic() {
   const f = S.web && S.web.cic_flow;
   if (!f) { if (cicModal) { cicModal.close(); cicModal = null; } return; }
-  if (!cicModal && (f.stage === "waiting" || f.stage === "working") && cicShown !== f.id) {
+  // Shown when a move starts, and again when it needs the user to sign in to claude.ai.
+  if (!cicModal && cicMoving(f) && (cicShown !== f.id || (f.stage === "sign_in" && cicSignShown !== f.id))) {
     cicShown = f.id;
+    if (f.stage === "sign_in") cicSignShown = f.id;
     cicModal = modal({ title: tr("cic_title", { a: lab(f.to) }), body: cicView(f), actions: [], onClose: () => { cicModal = null; } });
     const wd = win(); wd.unminimize().catch(() => {}); wd.show().catch(() => {}); wd.setFocus().catch(() => {});
   }
@@ -702,7 +707,7 @@ function syncCic() {
   cicModal.setBody(cicView(f));
   cicModal.setActions(f.stage === "waiting"
     ? [{ label: tr("cancel"), onClick: () => act(() => call("web.cic_cancel")) }, { label: tr("cic_done_btn"), primary: true, onClick: () => act(() => call("web.cic_done", { id: f.id, ok: true })) }]
-    : f.stage === "working" ? [{ label: tr("close"), onClick: (m) => m.close() }]
+    : f.stage === "working" || f.stage === "sign_in" ? [{ label: tr("close"), onClick: (m) => m.close() }]
     : f.stage === "failed" ? [{ label: tr("close"), onClick: (m) => m.close() }, { label: tr("cic_retry"), primary: true, onClick: (m) => { m.close(); act(() => call("web.cic_begin", { to: f.to })); } }]
     : [{ label: tr("close"), primary: true, onClick: (m) => m.close() }]);
   // A move Claude Bascule did on its own closes by itself once done.
@@ -1007,6 +1012,8 @@ function evText(e) {
     case "cic.switched": return tr("ev_cic_switched", { a: lab(d.account) });
     case "cic.failed": return tr("ev_cic_failed", { a: lab(d.account) }) + (d.error ? ` · ${d.error}` : "");
     case "web.no_session": return tr("ev_web_no_session", { a: lab(d.account) });
+    case "web.session_expired": return tr("ev_web_session_expired", { a: lab(d.account) });
+    case "cic.sign_in": return tr("ev_cic_sign_in", { a: lab(d.account) });
     case "usage.rate_limited": return tr("ev_rate_limited", { a: lab(d.account), m: Math.max(1, Math.round((d.retry_after_s || 600) / 60)) });
     default: return null;
   }

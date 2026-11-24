@@ -461,10 +461,32 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             });
             let mut hub = ctx.web.lock().unwrap();
             hub.seen_ms = now_ms();
+            hub.captured_ms = now_ms();
             if !signed_in {
                 hub.account = None;
                 hub.unknown_email = None;
                 return Ok(json!({"account": null}));
+            }
+            // claude.ai no longer accepts this session: the browser is in fact signed out. A copy
+            // of that same session in the vault is dead too: switching to it would sign the
+            // browser out, so it goes.
+            if p.get("session").and_then(Value::as_str) == Some("invalid") {
+                let dead = crate::web::account_for(&ctx.paths, &list, None, &cookies);
+                if let Some(name) = &dead {
+                    if crate::web::load(&ctx.paths, name)
+                        .is_some_and(|s| crate::web::same_session(&s.cookies, &cookies))
+                    {
+                        crate::web::forget(&ctx.paths, name);
+                    }
+                    if hub.account.is_some() || hub.account_checked {
+                        hub.notes
+                            .push_back(("web.session_expired".into(), json!({"account": name})));
+                    }
+                }
+                hub.account = None;
+                hub.account_checked = false;
+                hub.unknown_email = None;
+                return Ok(json!({"account": null, "expired": dead}));
             }
             match crate::web::account_for(&ctx.paths, &list, email, &cookies) {
                 Some(name) => {
@@ -557,7 +579,10 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             if !ctx.web.lock().unwrap().connected(now_ms()) && crate::cdp::endpoint().is_none() {
                 bail!("the browser extension is not connected");
             }
+            let list = AccountList::load(&ctx.paths.accounts_file())?;
+            let active = crate::vault::active_account(&ctx.paths, &list).map(|a| a.name.clone());
             let mode = crate::web::start_cic(&ctx.web, &ctx.paths, to, false, now_ms())?;
+            ctx.web.lock().unwrap().cic_by_hand = active.as_deref() != Some(to);
             Ok(json!({"mode": mode}))
         }
         // Save the browser's current claude.ai session for its account (through Chrome's DevTools).
@@ -587,8 +612,11 @@ fn dispatch(ctx: &Arc<Ctx>, method: &str, p: &Value) -> Result<Value> {
             let ok = p.get("ok").and_then(Value::as_bool).unwrap_or(false);
             let error = p.get("error").and_then(Value::as_str).map(str::to_string);
             let mut hub = ctx.web.lock().unwrap();
+            // A move Claude Bascule drives ends with its own result: the Connector only sees the
+            // sign-in page leave, which a claude.ai sign-in page in between also does.
             let same = hub.cic_flow.as_ref().is_some_and(|f| {
-                (f.stage == "waiting" || f.stage == "working")
+                crate::web::moving(f)
+                    && f.mode != "auto"
                     && p.get("id")
                         .and_then(Value::as_i64)
                         .is_none_or(|id| id == f.id)

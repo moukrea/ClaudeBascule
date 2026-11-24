@@ -26,11 +26,19 @@ const ENTRIES: &[&str] = &[
     "vivaldi-stable.desktop",
 ];
 
+/// How long the user has to sign in to claude.ai when Claude in Chrome's sign-in needs it.
+pub const LOGIN_SECS: u64 = 600;
+
 /// Run the AT-SPI helper with a deadline: a desktop accessibility bus that stops answering must
-/// not leave helpers piling up.
+/// not leave helpers piling up. Its progress lines (`{"stage": ...}`) go to `on_stage` as they
+/// come; a stage may extend the deadline (`extend` gives the new one from now).
 #[cfg(target_os = "linux")]
-fn run(args: &[&str], deadline: std::time::Duration) -> Result<Value> {
-    use std::io::{Read, Write};
+fn run(
+    args: &[&str],
+    deadline: std::time::Duration,
+    mut on_stage: impl FnMut(&str) -> Option<std::time::Duration>,
+) -> Result<Value> {
+    use std::io::{BufRead, Write};
     let mut child = std::process::Command::new("python3")
         .arg("-I")
         .arg("-")
@@ -45,24 +53,43 @@ fn run(args: &[&str], deadline: std::time::Duration) -> Result<Value> {
         .take()
         .context("stdin")?
         .write_all(SCRIPT.as_bytes())?;
-    let started = std::time::Instant::now();
-    loop {
-        if child.try_wait()?.is_some() {
-            break;
+    let out = child.stdout.take().context("stdout")?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(out).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
         }
-        if started.elapsed() > deadline {
+    });
+    let mut until = std::time::Instant::now() + deadline;
+    let mut last: Option<Value> = None;
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(line) => {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if let Some(stage) = v.get("stage").and_then(Value::as_str) {
+                    if let Some(more) = on_stage(stage) {
+                        until = std::time::Instant::now() + more;
+                    }
+                } else {
+                    last = Some(v);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if std::time::Instant::now() > until {
             let _ = child.kill();
             let _ = child.wait();
             bail!("the desktop's accessibility did not answer in time (restart Chrome, or log out and in)");
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
     }
-    let mut out = String::new();
-    if let Some(mut o) = child.stdout.take() {
-        o.read_to_string(&mut out)?;
-    }
-    serde_json::from_str(out.lines().last().unwrap_or(""))
-        .context("no answer from the accessibility helper")
+    let _ = child.wait();
+    last.context("no answer from the accessibility helper")
 }
 
 /// "unsupported", "off" (not prepared), "restart" (prepared, the running browser started without
@@ -197,11 +224,21 @@ pub fn prepare() -> Result<usize> {
 }
 
 /// Sign Claude in Chrome out and in again with claude.ai's current session, approving the consent
-/// only when the page names `email`. Its options page must be open.
-pub fn resign_cic(email: &str) -> Result<()> {
+/// only when the page names `email`. Its options page must be open. When claude.ai turns out to be
+/// signed out, `on_stage("sign_in")` is called and the user has `LOGIN_SECS` to sign in there;
+/// `on_stage("approving")` follows once they did.
+pub fn resign_cic(email: &str, mut on_stage: impl FnMut(&str)) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        let v = run(&["resign", email], std::time::Duration::from_secs(150))?;
+        let login = LOGIN_SECS.to_string();
+        let v = run(
+            &["resign", email, &login],
+            std::time::Duration::from_secs(150),
+            |stage| {
+                on_stage(stage);
+                (stage == "sign_in").then(|| std::time::Duration::from_secs(LOGIN_SECS + 90))
+            },
+        )?;
         if v["ok"].as_bool() == Some(true) {
             return Ok(());
         }
@@ -214,7 +251,7 @@ pub fn resign_cic(email: &str) -> Result<()> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = email;
+        let _ = (email, &mut on_stage);
         bail!("only on Linux for now")
     }
 }

@@ -143,6 +143,11 @@ pub struct Daemon {
     update_tried_ms: i64,
     a11y_checked_ms: i64,
     follow_override: Option<(bool, bool)>,
+    /// The last account Claude in Chrome was moved to without the user asking, and when: tried
+    /// again after 30 minutes, or at once when claude.ai is newly signed in with it.
+    cic_tried: Option<(String, i64)>,
+    /// The last time claude.ai, found signed out, was put on the active account's saved session.
+    web_tried: Option<(String, i64)>,
 }
 
 /// Notification strings in the six languages; {n}, {a}, {t} are filled by the caller.
@@ -172,6 +177,22 @@ fn tr(lang: &str, key: &str) -> String {
             "Para pasar a {a}: Log out y luego Sign in en la extensión (sin código).",
             "Per passare a {a}: Log out e poi Sign in nell'estensione (senza codice).",
             "Para passar para {a}: Log out e depois Sign in na extensão (sem código).",
+        ],
+        "cic_sign_in_title" => [
+            "claude.ai: sign in to finish",
+            "claude.ai : connexion pour terminer",
+            "claude.ai: zum Abschließen anmelden",
+            "claude.ai: inicia sesión para terminar",
+            "claude.ai: accedi per finire",
+            "claude.ai: inicie sessão para terminar",
+        ],
+        "cic_sign_in_body" => [
+            "claude.ai is signed out in Chrome: sign in to {a} in the tab that opened. Claude Bascule then moves Claude in Chrome by itself.",
+            "claude.ai est déconnecté dans Chrome : connectez {a} dans l'onglet ouvert. Claude Bascule bascule ensuite Claude in Chrome tout seul.",
+            "claude.ai ist in Chrome abgemeldet: Melden Sie {a} im geöffneten Tab an. Danach wechselt Claude Bascule Claude in Chrome selbst.",
+            "claude.ai no tiene sesión en Chrome: inicia sesión con {a} en la pestaña abierta. Claude Bascule cambia después Claude in Chrome solo.",
+            "claude.ai è disconnesso in Chrome: accedi con {a} nella scheda aperta. Poi Claude Bascule sposta da solo Claude in Chrome.",
+            "O claude.ai está sem sessão no Chrome: inicie sessão com {a} no separador aberto. Depois o Claude Bascule muda o Claude in Chrome sozinho.",
         ],
         "resume_one" => [
             "1 session to resume",
@@ -288,6 +309,8 @@ impl Daemon {
             update_tried_ms: 0,
             a11y_checked_ms: 0,
             follow_override: None,
+            cic_tried: None,
+            web_tried: None,
             updates: Arc::new(Mutex::new(crate::update::UpdateState {
                 current: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
@@ -1301,13 +1324,12 @@ impl Daemon {
         if web && extension && hub.account.as_deref() != Some(to) {
             missing |= hub.push_switch(&self.paths, to).is_err();
         }
-        let busy = hub
-            .cic_flow
-            .as_ref()
-            .is_some_and(|f| f.stage == "waiting" || f.stage == "working");
+        let busy = hub.cic_flow.as_ref().is_some_and(crate::web::moving);
         let move_cic = cic && hub.cic_account.as_deref() != Some(to) && !busy;
+        hub.cic_by_hand = false;
         drop(hub);
         if move_cic {
+            self.cic_tried = Some((to.to_string(), now_ms()));
             match crate::web::start_cic(&self.web, &self.paths, to, web, now_ms()) {
                 Ok(mode) if mode == "guided" => {
                     let lang = self.lang();
@@ -1341,26 +1363,77 @@ impl Daemon {
         });
     }
 
-    /// A Claude in Chrome move waits for the user at most 10 minutes; its outcome shows 30 s.
+    /// A guided Claude in Chrome move waits for the user at most 10 minutes (one Claude Bascule
+    /// drives ends with its helper, which has its own deadlines, 20 minutes at most); an outcome
+    /// shows 30 s.
     fn cic_tick(&mut self) {
         let mut hub = self.web.lock().unwrap();
         let now = now_ms();
-        match hub
-            .cic_flow
-            .as_ref()
-            .map(|f| (f.stage.clone(), f.started_ms))
-        {
-            Some((stage, started))
-                if (stage == "waiting" || stage == "working") && now - started > 600_000 =>
-            {
-                hub.queue.push_back(json!({"type": "cic_stop"}));
-                hub.end_cic(&self.paths, false, Some("timeout".into()));
-            }
-            Some((stage, started)) if stage != "waiting" && now - started > 630_000 => {
-                hub.cic_flow = None;
-            }
-            _ => {}
+        let Some(f) = hub.cic_flow.as_ref() else {
+            return;
+        };
+        let limit = if f.mode == "auto" { 1_200_000 } else { 600_000 };
+        if crate::web::moving(f) && now - f.started_ms > limit {
+            hub.queue.push_back(json!({"type": "cic_stop"}));
+            hub.end_cic(&self.paths, false, Some("timeout".into()));
+        } else if f.ended_ms.is_some_and(|t| now - t > 30_000) {
+            hub.cic_flow = None;
         }
+    }
+
+    /// Claude in Chrome follows Claude Code: once claude.ai is signed in with the active account
+    /// while Claude in Chrome is on another one (a move that failed, or a service restarted midway),
+    /// it is moved, unless the user moved it by hand since the last switch.
+    fn cic_reconcile(&mut self) {
+        let (web, cic) = self
+            .follow_override
+            .unwrap_or((self.settings.web_follow, self.settings.cic_follow));
+        let Some(active) = self.active() else {
+            return;
+        };
+        let now = now_ms();
+        // claude.ai signed out in the browser (a dead session, a browser just restarted): it gets
+        // the active account's saved session, once per 30 minutes or per new sign-in.
+        if web
+            && !self
+                .web_tried
+                .as_ref()
+                .is_some_and(|(a, t)| *a == active && now - t < 1_800_000)
+        {
+            let mut hub = self.web.lock().unwrap();
+            if hub.connected(now)
+                && hub.captured_ms > 0
+                && hub.account.is_none()
+                && !hub.cic_flow.as_ref().is_some_and(crate::web::moving)
+                && crate::web::has(&self.paths, &active)
+            {
+                self.web_tried = Some((active.clone(), now));
+                let _ = hub.push_switch(&self.paths, &active);
+                return;
+            }
+        }
+        {
+            let hub = self.web.lock().unwrap();
+            let due = cic
+                && !hub.cic_by_hand
+                && hub.connected(now)
+                && hub.a11y_state == "ready"
+                && hub.account.as_deref() == Some(active.as_str())
+                && hub.cic_account.as_deref() != Some(active.as_str())
+                && !hub.cic_flow.as_ref().is_some_and(crate::web::moving);
+            if !due {
+                return;
+            }
+        }
+        if self
+            .cic_tried
+            .as_ref()
+            .is_some_and(|(a, t)| *a == active && now - t < 1_800_000)
+        {
+            return;
+        }
+        self.cic_tried = Some((active.clone(), now));
+        let _ = crate::web::start_cic(&self.web, &self.paths, &active, true, now);
     }
 
     /// Releases: checked at start, then every hour of wall-clock time (a laptop that slept all
@@ -1587,9 +1660,24 @@ impl Daemon {
             self.reload_settings();
             self.update_tick();
             self.cic_tick();
+            self.cic_reconcile();
             self.a11y_tick();
             let notes: Vec<(String, Value)> = self.web.lock().unwrap().notes.drain(..).collect();
             for (kind, data) in notes {
+                // claude.ai newly signed in with an account: Claude in Chrome may follow at once.
+                if kind == "web.account" {
+                    self.cic_tried = None;
+                    self.web_tried = None;
+                }
+                if kind == "cic.sign_in" {
+                    let to = data["account"].as_str().unwrap_or_default().to_string();
+                    let lang = self.lang();
+                    self.notify(
+                        &tr(&lang, "cic_sign_in_title"),
+                        &tr(&lang, "cic_sign_in_body").replace("{a}", &self.label(&to)),
+                        false,
+                    );
+                }
                 self.event(&kind, data);
             }
             while let Ok(cmd) = self.rx.try_recv() {
