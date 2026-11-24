@@ -208,16 +208,24 @@ impl WebHub {
 
     /// Start moving Claude in Chrome to `name`: claude.ai gets `name`'s session, the extension's
     /// options open, and the Connector watches for its new sign-in.
+    /// Without a saved session (`without_session`, for a move Claude Bascule drives), claude.ai is
+    /// signed out instead (its current session saved first) and the user signs in on the page the
+    /// move opens.
     pub fn push_cic(
         &mut self,
         paths: &Paths,
         name: &str,
         keep_web: bool,
         now_ms: i64,
+        without_session: bool,
     ) -> Result<i64> {
-        let s = load(paths, name).with_context(|| {
-            format!("no claude.ai session saved for {name}: sign it in in the browser once")
-        })?;
+        let cookies = match load(paths, name) {
+            Some(s) => s.cookies,
+            None if without_session => vec![],
+            None => anyhow::bail!(
+                "no claude.ai session saved for {name}: sign it in in the browser once"
+            ),
+        };
         let restore = if keep_web {
             None
         } else {
@@ -235,9 +243,8 @@ impl WebHub {
         });
         self.queue
             .retain(|c| c.get("type").and_then(Value::as_str) != Some("switch"));
-        self.queue.push_back(
-            json!({"type": "cic_begin", "id": id, "to": name, "email": s.email, "cookies": s.cookies}),
-        );
+        self.queue
+            .push_back(json!({"type": "cic_begin", "id": id, "to": name, "cookies": cookies}));
         Ok(id)
     }
 
@@ -454,9 +461,10 @@ pub fn start_cic(
             let hub = web.lock().unwrap();
             (hub.connected(now_ms), hub.a11y_state == "ready")
         };
+        let unattended = extension && a11y;
         web.lock()
             .unwrap()
-            .push_cic(paths, name, keep_web, now_ms)?;
+            .push_cic(paths, name, keep_web, now_ms, unattended)?;
         // Chrome does not let an extension open another extension's page: the service opens
         // Claude in Chrome's options itself, once claude.ai carries the account.
         std::thread::spawn(|| {
@@ -466,10 +474,13 @@ pub fn start_cic(
                 &format!("chrome-extension://{}/options.html", crate::cdp::CIC_ID),
             );
         });
-        if !(extension && a11y) {
+        if !unattended {
             return Ok("guided".into());
         }
-        let email = load(paths, name).map(|s| s.email).unwrap_or_default();
+        let email = crate::config::AccountList::load(&paths.accounts_file())?
+            .by_name(name)
+            .map(|a| a.email.clone())
+            .context("unknown account")?;
         let id = {
             let mut hub = web.lock().unwrap();
             let f = hub.cic_flow.as_mut().context("no move")?;
