@@ -191,11 +191,13 @@ def press(node):
 def open_options():
     # Claude in Chrome's options in a new tab of the running browser (it went behind another tab).
     try:
-        app = browsers()[0]
-        pid = conn().call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
-                               "org.freedesktop.DBus", "GetConnectionUnixProcessID", GLib.Variant("(s)", (app[0],)),
-                               GLib.VariantType("(u)"), 0, T, None).unpack()[0]
-        exe = os.readlink("/proc/%d/exe" % pid)
+        exe = os.environ.get("BASCULE_BROWSER")
+        if not exe:
+            app = browsers()[0]
+            pid = conn().call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                   "org.freedesktop.DBus", "GetConnectionUnixProcessID", GLib.Variant("(s)", (app[0],)),
+                                   GLib.VariantType("(u)"), 0, T, None).unpack()[0]
+            exe = os.readlink("/proc/%d/exe" % pid)
         subprocess.Popen([exe, "chrome-extension://%s/options.html" % CIC], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return True

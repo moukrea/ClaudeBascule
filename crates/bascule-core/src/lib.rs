@@ -7,6 +7,7 @@ pub mod config;
 pub mod control;
 pub mod daemon;
 pub mod engine;
+pub mod flatpak;
 pub mod jaunt;
 pub mod login;
 pub mod net;

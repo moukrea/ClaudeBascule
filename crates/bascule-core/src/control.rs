@@ -24,6 +24,16 @@ pub fn socket_path(paths: &Paths) -> PathBuf {
     paths.state.join("bascule.sock")
 }
 
+/// What a browser's native messaging host may ask (on the sockets made for Flatpak browsers, which
+/// answer nothing else).
+pub const BROWSER_METHODS: &[&str] = &[
+    "web.hello",
+    "web.next",
+    "web.capture",
+    "web.result",
+    "web.cic_done",
+];
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct LoginState {
     pub account: Option<String>,
@@ -89,11 +99,32 @@ pub fn serve(
         let listener = std::os::unix::net::UnixListener::bind(&path)
             .with_context(|| format!("bind {}", path.display()))?;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        // Flatpak browsers reach the service through a socket in their own folder, which answers
+        // the browser's requests only.
+        if let Ok(exe) = std::env::current_exe() {
+            let ext = platform::extension_dir();
+            for sock in crate::flatpak::setup(&paths.home, &exe, ext.as_deref()) {
+                let _ = std::fs::remove_file(&sock);
+                let Ok(l) = std::os::unix::net::UnixListener::bind(&sock) else {
+                    continue;
+                };
+                let _ = std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600));
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    for stream in l.incoming().flatten() {
+                        let ctx = ctx.clone();
+                        std::thread::spawn(move || {
+                            let _ = client(&ctx, Stream::Unix(stream), Some(BROWSER_METHODS));
+                        });
+                    }
+                });
+            }
+        }
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let ctx = ctx.clone();
                 std::thread::spawn(move || {
-                    let _ = client(&ctx, Stream::Unix(stream));
+                    let _ = client(&ctx, Stream::Unix(stream), None);
                 });
             }
         });
@@ -104,7 +135,7 @@ pub fn serve(
             for stream in listener.incoming().flatten() {
                 let ctx = ctx.clone();
                 std::thread::spawn(move || {
-                    let _ = client(&ctx, Stream::Tcp(stream));
+                    let _ = client(&ctx, Stream::Tcp(stream), None);
                 });
             }
         });
@@ -112,7 +143,8 @@ pub fn serve(
     Ok(())
 }
 
-fn client(ctx: &Arc<Ctx>, stream: Stream) -> Result<()> {
+/// One connection; `allowed` limits the methods it may call.
+fn client(ctx: &Arc<Ctx>, stream: Stream, allowed: Option<&[&str]>) -> Result<()> {
     let mut w = stream.try_clone()?;
     for line in BufReader::new(stream).lines() {
         let line = line?;
@@ -139,7 +171,11 @@ fn client(ctx: &Arc<Ctx>, stream: Stream) -> Result<()> {
                     .unwrap_or("")
                     .to_string();
                 let params = m.get("params").cloned().unwrap_or(json!({}));
-                (id, dispatch(ctx, &method, &params))
+                if allowed.is_some_and(|a| !a.contains(&method.as_str())) {
+                    (id, Err(anyhow::anyhow!("not allowed")))
+                } else {
+                    (id, dispatch(ctx, &method, &params))
+                }
             }
             Err(e) => (Value::Null, Err(anyhow::anyhow!("invalid JSON: {e}"))),
         };
@@ -775,6 +811,30 @@ pub fn call(paths: &Paths, method: &str, params: Value) -> Result<Value> {
             json!({"id": 1, "method": method, "params": params}),
             &ep.key
         )
+    )?;
+    let mut line = String::new();
+    BufReader::new(s).read_line(&mut line)?;
+    let v: Value = serde_json::from_str(&line)?;
+    if v.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(v.get("result").cloned().unwrap_or(Value::Null))
+    } else {
+        bail!(
+            "{}",
+            v.get("error").and_then(Value::as_str).unwrap_or("refused")
+        )
+    }
+}
+
+/// A one-shot request on a given Unix socket (a Flatpak browser's).
+#[cfg(unix)]
+pub fn call_socket(path: &std::path::Path, method: &str, params: Value) -> Result<Value> {
+    let mut s = std::os::unix::net::UnixStream::connect(path)
+        .context("the Claude Bascule service is not running")?;
+    s.set_read_timeout(Some(Duration::from_secs(150)))?;
+    writeln!(
+        s,
+        "{}",
+        json!({"id": 1, "method": method, "params": params})
     )?;
     let mut line = String::new();
     BufReader::new(s).read_line(&mut line)?;

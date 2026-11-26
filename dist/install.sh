@@ -19,8 +19,10 @@ EXT_ID="comipnngbifajjpfbagbmlfgckllcobj"
 setup_browser() {
   src=$1; dest=$2; host_bin=$3; shift 3
   [ -d "$src" ] || return 0
-  mkdir -p "$(dirname "$dest")"
-  rm -rf "$dest.new"; cp -R "$src" "$dest.new"; rm -rf "$dest"; mv "$dest.new" "$dest"
+  # The files are replaced in place: a browser that loaded this folder through the desktop's
+  # file portal (Flatpak) keeps a link to the folder itself, which a new folder would break.
+  mkdir -p "$dest"
+  cp -R "$src/." "$dest/"
   for d in "$@"; do
     [ -d "$d" ] || continue
     mkdir -p "$d/NativeMessagingHosts"
@@ -125,6 +127,10 @@ EOF
   update-desktop-database "$data/applications" >/dev/null 2>&1 || true
   gtk-update-icon-cache -q -t -f "$data/icons/hicolor" >/dev/null 2>&1 || true
 
+  # The extension is in place before the service starts: it copies it for Flatpak browsers.
+  setup_browser "$tmp/x/chrome-extension" "$data/claude-bascule/chrome-extension" "$bin/bascule" \
+    "$conf/google-chrome" "$conf/google-chrome-beta" "$conf/chromium" "$conf/BraveSoftware/Brave-Browser" "$conf/microsoft-edge" "$conf/vivaldi"
+
   svc_path="$bin${extra_path:+:$extra_path}:/usr/local/bin:/usr/bin:/bin"
   if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
     mkdir -p "$conf/systemd/user"
@@ -173,9 +179,6 @@ EOF
     warn "The window needs WebKitGTK 4.1. Install it with your package manager, for example:"
     warn "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0    Fedora: sudo dnf install webkit2gtk4.1    Arch: sudo pacman -S webkit2gtk-4.1"
   fi
-
-  setup_browser "$tmp/x/chrome-extension" "$data/claude-bascule/chrome-extension" "$bin/bascule" \
-    "$conf/google-chrome" "$conf/google-chrome-beta" "$conf/chromium" "$conf/BraveSoftware/Brave-Browser" "$conf/microsoft-edge" "$conf/vivaldi"
 
   case ":$PATH:" in *":$bin:"*) ;; *) warn "Add $bin to your PATH to use the 'bascule' command." ;; esac
 

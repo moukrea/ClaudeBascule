@@ -24,6 +24,11 @@ const ENTRIES: &[&str] = &[
     "brave-browser.desktop",
     "microsoft-edge.desktop",
     "vivaldi-stable.desktop",
+    "com.google.Chrome.desktop",
+    "org.chromium.Chromium.desktop",
+    "com.brave.Browser.desktop",
+    "com.microsoft.Edge.desktop",
+    "com.vivaldi.Vivaldi.desktop",
 ];
 
 /// How long the user has to sign in to claude.ai when Claude in Chrome's sign-in needs it.
@@ -35,11 +40,18 @@ pub const LOGIN_SECS: u64 = 600;
 #[cfg(target_os = "linux")]
 fn run(
     args: &[&str],
+    launcher: Option<&std::path::Path>,
     deadline: std::time::Duration,
     mut on_stage: impl FnMut(&str) -> Option<std::time::Duration>,
 ) -> Result<Value> {
     use std::io::{BufRead, Write};
-    let mut child = std::process::Command::new("python3")
+    let mut cmd = std::process::Command::new("python3");
+    // The helper reopens a page with the browser's own command (a Flatpak browser's is not the
+    // program its process runs).
+    if let Some(l) = launcher {
+        cmd.env("BASCULE_BROWSER", l);
+    }
+    let mut child = cmd
         .arg("-I")
         .arg("-")
         .args(args)
@@ -180,34 +192,24 @@ pub fn prepare() -> Result<usize> {
         std::fs::create_dir_all(&dest)?;
         let mut done = 0;
         for e in ENTRIES {
+            let user_flatpak =
+                crate::paths::home_dir().join(".local/share/flatpak/exports/share/applications");
             let system = [
-                "/usr/share/applications",
-                "/usr/local/share/applications",
-                "/var/lib/flatpak/exports/share/applications",
+                std::path::PathBuf::from("/usr/share/applications"),
+                std::path::PathBuf::from("/usr/local/share/applications"),
+                std::path::PathBuf::from("/var/lib/flatpak/exports/share/applications"),
+                user_flatpak,
             ]
             .iter()
-            .map(|d| std::path::Path::new(d).join(e))
+            .map(|d| d.join(e))
             .find(|p| p.is_file());
             let Some(src) = system else { continue };
             let text = std::fs::read_to_string(&src)?;
             if text.contains(FLAG) {
                 continue;
             }
-            // Every Exec= line starts the browser with the flag right after its program.
-            let patched: Vec<String> = text
-                .lines()
-                .map(|l| match l.strip_prefix("Exec=") {
-                    Some(rest) => {
-                        let mut parts = rest.splitn(2, ' ');
-                        let prog = parts.next().unwrap_or("");
-                        match parts.next() {
-                            Some(args) => format!("Exec={prog} {FLAG} {args}"),
-                            None => format!("Exec={prog} {FLAG}"),
-                        }
-                    }
-                    None => l.to_string(),
-                })
-                .collect();
+            let app_id = e.trim_end_matches(".desktop");
+            let patched: Vec<String> = text.lines().map(|l| with_flag(l, app_id)).collect();
             std::fs::write(dest.join(e), patched.join("\n") + "\n")?;
             done += 1;
         }
@@ -223,16 +225,43 @@ pub fn prepare() -> Result<usize> {
     bail!("only on Linux for now")
 }
 
+/// An `Exec=` line that starts the browser with the accessibility flag: right after its program,
+/// or for a Flatpak app (`flatpak run ... <app id> ...`) right after the app id, among the
+/// browser's own arguments.
+#[cfg(target_os = "linux")]
+fn with_flag(line: &str, app_id: &str) -> String {
+    let Some(rest) = line.strip_prefix("Exec=") else {
+        return line.to_string();
+    };
+    let words: Vec<&str> = rest.split(' ').collect();
+    let at = if words.first().is_some_and(|w| w.ends_with("flatpak")) {
+        words.iter().position(|w| *w == app_id).map(|i| i + 1)
+    } else {
+        None
+    }
+    .unwrap_or(1);
+    let mut out: Vec<&str> = words[..at.min(words.len())].to_vec();
+    out.push(FLAG);
+    out.extend_from_slice(&words[at.min(words.len())..]);
+    format!("Exec={}", out.join(" "))
+}
+
 /// Sign Claude in Chrome out and in again with claude.ai's current session, approving the consent
 /// only when the page names `email`. Its options page must be open. When claude.ai turns out to be
 /// signed out, `on_stage("sign_in")` is called and the user has `LOGIN_SECS` to sign in there;
 /// `on_stage("approving")` follows once they did.
-pub fn resign_cic(email: &str, mut on_stage: impl FnMut(&str)) -> Result<()> {
+/// `launcher` is the browser's command, used to reopen Claude in Chrome's options.
+pub fn resign_cic(
+    email: &str,
+    launcher: Option<&std::path::Path>,
+    mut on_stage: impl FnMut(&str),
+) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         let login = LOGIN_SECS.to_string();
         let v = run(
             &["resign", email, &login],
+            launcher,
             std::time::Duration::from_secs(150),
             |stage| {
                 on_stage(stage);
@@ -251,7 +280,25 @@ pub fn resign_cic(email: &str, mut on_stage: impl FnMut(&str)) -> Result<()> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (email, &mut on_stage);
+        let _ = (email, launcher, &mut on_stage);
         bail!("only on Linux for now")
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flag_goes_among_the_browser_arguments() {
+        assert_eq!(
+            with_flag("Exec=/usr/bin/google-chrome-stable %U", "google-chrome"),
+            "Exec=/usr/bin/google-chrome-stable --force-renderer-accessibility %U"
+        );
+        assert_eq!(
+            with_flag("Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=/app/bin/chrome --file-forwarding com.google.Chrome @@u %U @@", "com.google.Chrome"),
+            "Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=/app/bin/chrome --file-forwarding com.google.Chrome --force-renderer-accessibility @@u %U @@"
+        );
+        assert_eq!(with_flag("Name=Chrome", "x"), "Name=Chrome");
     }
 }

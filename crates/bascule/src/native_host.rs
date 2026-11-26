@@ -13,6 +13,37 @@ use std::time::Duration;
 /// What the extension may ask the service.
 const ALLOWED: &[&str] = &["web.hello", "web.capture", "web.result", "web.cic_done"];
 
+/// The service, through its usual endpoint or, for a browser installed with Flatpak (whose sandbox
+/// sees only its own folder), through the socket next to this copy of `bascule`.
+#[derive(Clone)]
+enum Service {
+    Usual(Box<Paths>),
+    #[cfg(unix)]
+    Socket(std::path::PathBuf),
+}
+
+impl Service {
+    fn find() -> Service {
+        #[cfg(unix)]
+        if let Some(sock) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("bascule.sock")))
+            .filter(|p| p.exists())
+        {
+            return Service::Socket(sock);
+        }
+        Service::Usual(Box::new(Paths::from_env()))
+    }
+
+    fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
+        match self {
+            Service::Usual(paths) => control::call(paths, method, params),
+            #[cfg(unix)]
+            Service::Socket(sock) => control::call_socket(sock, method, params),
+        }
+    }
+}
+
 fn read_msg(r: &mut impl Read) -> Option<Value> {
     let mut len = [0u8; 4];
     r.read_exact(&mut len).ok()?;
@@ -34,12 +65,12 @@ fn write_msg(out: &Mutex<std::io::Stdout>, v: &Value) {
 }
 
 pub fn run() {
-    let paths = Paths::from_env();
+    let service = Service::find();
     let out = Arc::new(Mutex::new(std::io::stdout()));
     {
-        let (out, paths) = (out.clone(), paths.clone());
+        let (out, service) = (out.clone(), service.clone());
         std::thread::spawn(move || loop {
-            match control::call(&paths, "web.next", json!({"timeout_ms": 20000})) {
+            match service.call("web.next", json!({"timeout_ms": 20000})) {
                 Ok(Value::Null) => {}
                 Ok(cmd) => write_msg(&out, &json!({"push": cmd})),
                 Err(_) => std::thread::sleep(Duration::from_secs(3)),
@@ -54,7 +85,7 @@ pub fn run() {
             json!({"id": id, "error": "not allowed"})
         } else {
             let params = m.get("params").cloned().unwrap_or(json!({}));
-            match control::call(&paths, method, params) {
+            match service.call(method, params) {
                 Ok(r) => json!({"id": id, "result": r}),
                 Err(e) => json!({"id": id, "error": format!("{e:#}")}),
             }

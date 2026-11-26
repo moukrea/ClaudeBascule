@@ -546,17 +546,29 @@ fn xdg_download_dir(text: &str, home: &Path) -> Option<PathBuf> {
 /// A Chromium-based browser found on this machine.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Browser {
+    /// `chrome`, `chromium`, `brave`, `edge`, `vivaldi`; with `-flatpak` for a Flatpak install.
     pub id: String,
     pub name: String,
     #[serde(skip)]
     pub exe: PathBuf,
     /// Its extensions page (`chrome://extensions`, `edge://extensions`...).
     pub page: String,
+    /// The Connector's folder this browser loads (a Flatpak browser has its own copy).
+    pub extension_dir: Option<PathBuf>,
 }
 
-/// Chrome, Chromium, Brave, Edge and Vivaldi, when installed (Chrome first).
+impl Browser {
+    /// `chrome` for both `chrome` and `chrome-flatpak`.
+    pub fn family(&self) -> &str {
+        self.id.trim_end_matches("-flatpak")
+    }
+}
+
+/// Chrome, Chromium, Brave, Edge and Vivaldi, when installed (Chrome first; on Linux, Flatpak
+/// installs too).
 pub fn browsers() -> Vec<Browser> {
     let mut out = Vec::new();
+    let ext = extension_dir();
     let mut add = |id: &str, name: &str, page: &str, exe: Option<PathBuf>| {
         if let Some(exe) = exe {
             out.push(Browser {
@@ -564,6 +576,7 @@ pub fn browsers() -> Vec<Browser> {
                 name: name.into(),
                 exe,
                 page: page.into(),
+                extension_dir: ext.clone(),
             });
         }
     };
@@ -600,6 +613,27 @@ pub fn browsers() -> Vec<Browser> {
             "vivaldi://extensions/",
             find(&["vivaldi", "vivaldi-stable"]),
         );
+        let home = crate::paths::home_dir();
+        for app in crate::flatpak::APPS {
+            if let Some(exe) = crate::flatpak::launcher(&home, app) {
+                let page = match app.family {
+                    "brave" => "brave://extensions/",
+                    "edge" => "edge://extensions/",
+                    "vivaldi" => "vivaldi://extensions/",
+                    _ => "chrome://extensions/",
+                };
+                let dir = crate::flatpak::extension_dir(&home, app);
+                out.push(Browser {
+                    id: format!("{}-flatpak", app.family),
+                    name: format!("{} (Flatpak)", app.name),
+                    exe,
+                    page: page.into(),
+                    extension_dir: dir.join("manifest.json").is_file().then_some(dir),
+                });
+            }
+        }
+        // Chrome first, whichever way it is installed.
+        out.sort_by_key(|b| b.family() != "chrome");
     }
     #[cfg(target_os = "macos")]
     {
@@ -704,17 +738,34 @@ pub fn open_extensions_page(id: &str) -> Result<()> {
     open_in_browser(id, &page)
 }
 
-/// Open a page (also chrome:// pages) in a given browser, or the first one found.
+/// The browser chosen in the settings (by id, else of the same family), else the first one found.
+pub fn chosen_browser(paths: &crate::paths::Paths) -> Option<Browser> {
+    let id = crate::config::Settings::load(&paths.settings_file())
+        .map(|s| s.browser)
+        .unwrap_or_default();
+    let all = browsers();
+    let family = id.trim_end_matches("-flatpak").to_string();
+    all.iter()
+        .find(|b| b.id == id)
+        .or_else(|| all.iter().find(|b| !id.is_empty() && b.family() == family))
+        .or(all.first())
+        .cloned()
+}
+
+/// Open a page (also chrome:// pages) in a given browser (by id, else of the same family), or the
+/// first one found.
 pub fn open_in_browser(id: &str, url: &str) -> Result<()> {
     let all = browsers();
+    let family = id.trim_end_matches("-flatpak");
     let b = all
         .iter()
         .find(|b| b.id == id)
+        .or_else(|| all.iter().find(|b| b.family() == family))
         .or(all.first())
         .context("no Chromium-based browser found")?;
-    let url = if b.id == "edge" {
+    let url = if b.family() == "edge" {
         url.replacen("chrome://", "edge://", 1)
-    } else if b.id == "brave" {
+    } else if b.family() == "brave" {
         url.replacen("chrome://", "brave://", 1)
     } else {
         url.to_string()
