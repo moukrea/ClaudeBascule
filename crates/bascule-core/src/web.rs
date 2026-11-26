@@ -476,10 +476,14 @@ pub fn start_cic(
             .push_cic(paths, name, keep_web, now_ms, unattended)?;
         // Chrome does not let an extension open another extension's page: the service opens
         // Claude in Chrome's options itself, once claude.ai carries the account.
-        std::thread::spawn(|| {
+        let browser = crate::platform::chosen_browser(paths);
+        let browser_id = browser
+            .as_ref()
+            .map_or("chrome".to_string(), |b| b.id.clone());
+        std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1500));
             let _ = crate::platform::open_in_browser(
-                "chrome",
+                &browser_id,
                 &format!("chrome-extension://{}/options.html", crate::cdp::CIC_ID),
             );
         });
@@ -497,6 +501,7 @@ pub fn start_cic(
             f.stage = "working".into();
             f.id
         };
+        let launcher = browser.map(|b| b.exe);
         let (web, paths, name) = (web.clone(), paths.clone(), name.to_string());
         std::thread::spawn(move || {
             // The extension puts claude.ai on the account, then reports what claude.ai says.
@@ -532,7 +537,7 @@ pub fn start_cic(
                 None => {
                     // Claude in Chrome's options page has had time to open.
                     std::thread::sleep(std::time::Duration::from_secs(1));
-                    crate::a11y::resign_cic(&email, |stage| {
+                    crate::a11y::resign_cic(&email, launcher.as_deref(), |stage| {
                         let mut hub = web.lock().unwrap();
                         if let Some(f) = hub.cic_flow.as_mut().filter(|f| f.id == id && moving(f)) {
                             f.stage = if stage == "sign_in" { "sign_in" } else { "working" }.into();

@@ -14,6 +14,9 @@
 - **A claude.ai session stays in the browser that signed in.** claude.ai refuses a session copied
   into another browser (`account_session_invalid`, seen on 2026-11-24) and that browser ends up
   signed out. Backups restore it only on the computer that made them; never copy one elsewhere.
+- **Flatpak browsers get their own socket, which answers the browser's methods only**
+  (`control::BROWSER_METHODS`): their sandbox must never reach the rest (tokens, exports). Never
+  change a Flatpak app's permissions.
 - **The accessibility helper (`a11y_linux.py`) makes plain D-Bus calls** and walks only the pages
   it needs. libatspi loads a whole application's tree first and hangs on a browser with many tabs.
 - **Never touch the real `~/.claude` (or the macOS keychain) during tests.** Use isolated folders

@@ -72,6 +72,9 @@ pub struct Settings {
     /// When Claude Code switches account, move the Claude in Chrome extension too (guided: it
     /// must sign out and in again itself). On by default.
     pub cic_follow: bool,
+    /// The browser Claude Bascule works with (`platform::Browser::id`, such as `chrome` or
+    /// `chrome-flatpak`); empty: the first one found (Chrome first).
+    pub browser: String,
 }
 
 /// The languages Bascule ships, the same as jaunt and daffin.
@@ -109,6 +112,7 @@ impl Default for Settings {
             check_updates: true,
             web_follow: false,
             cic_follow: true,
+            browser: String::new(),
         }
     }
 }

@@ -641,25 +641,37 @@ async function openBrowserGuide() {
   const w = S.web || {};
   let list = [];
   try { list = await invoke("browsers"); } catch (e) { list = []; }
-  const copy = (text, btn) => {
+  BROWSERS = list;
+  const copy = (text) => {
     const done = () => { toast(tr("guide_copied")); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
     else fallback();
     function fallback() { const t = el("textarea", { style: "position:fixed;opacity:0" }); t.value = text; document.body.append(t); t.select(); try { document.execCommand("copy"); done(); } catch (e) {} t.remove(); }
   };
-  const path = w.extension_dir;
-  guideStatus = el("div", { class: "guide-status" });
-  const body = el("div", { class: "guide" },
-    el("p", { class: "muted", text: tr("guide_intro") }),
-    el("div", { class: "steps web-steps" },
+  // The browser chosen in the settings, else the first found (Chrome first); picking another one
+  // here saves it, and shows the folder that browser loads (a Flatpak browser has its own copy).
+  const want = (S.settings && S.settings.browser) || "";
+  let pick = list.find((b) => b.id === want) || list.find((b) => want && b.id.split("-")[0] === want.split("-")[0]) || list[0] || null;
+  const steps = el("div", { class: "steps web-steps" });
+  const choose = (b) => { pick = b; paint(); call("settings.set", { settings: { browser: b.id } }).catch((e) => toast(String(e), "bad")); };
+  const paint = () => {
+    const path = pick ? pick.extension_dir : w.extension_dir;
+    fill(steps,
       el("div", { class: "step" }, el("span", { class: "sn", text: "1" }), el("div", {}, el("div", { class: "st", text: list.length ? tr("guide_s1") : tr("guide_s1_none") }),
-        list.length ? el("div", { class: "path-row" }, list.map((b) => el("button", { class: "btn" + (b === list[0] ? " ink" : ""), type: "button", onclick: () => invoke("open_extensions_page", { id: b.id }).catch((e) => toast(String(e), "bad")) }, icon("globe"), tr("guide_open", { b: b.name })))) : null)),
+        list.length > 1 ? el("div", { class: "path-row" }, list.map((b) => el("button", { class: "btn" + (b === pick ? " ink" : " flat"), type: "button", "aria-pressed": b === pick ? "true" : "false", onclick: () => choose(b) }, b.name))) : null,
+        pick ? el("div", { class: "path-row" }, el("button", { class: "btn" + (list.length > 1 ? "" : " ink"), type: "button", onclick: () => invoke("open_extensions_page", { id: pick.id }).catch((e) => toast(String(e), "bad")) }, icon("globe"), tr("guide_open", { b: pick.name }))) : null)),
       el("div", { class: "step" }, el("span", { class: "sn", text: "2" }), el("div", { class: "st", text: tr("guide_s2") })),
       el("div", { class: "step" }, el("span", { class: "sn", text: "3" }), el("div", {}, el("div", { class: "st", text: tr("guide_s3") }),
         path ? el("div", { class: "path-row" }, el("code", { class: "path", text: path }),
-          el("button", { class: "btn", type: "button", onclick: (e) => copy(path, e.currentTarget) }, icon("check"), tr("guide_copy")),
+          el("button", { class: "btn", type: "button", onclick: () => copy(path) }, icon("check"), tr("guide_copy")),
           el("button", { class: "btn flat", type: "button", onclick: () => invoke("open_folder", { path }).catch((e) => toast(String(e), "bad")) }, icon("folder"), tr("web_open_folder"))) : el("div", { class: "muted", text: tr("web_no_folder") }),
-        el("div", { class: "muted small", text: tr(OS_TIP[S.platform] || "guide_tip_linux") })))),
+        el("div", { class: "muted small", text: tr(OS_TIP[S.platform] || "guide_tip_linux") }))));
+  };
+  paint();
+  guideStatus = el("div", { class: "guide-status" });
+  const body = el("div", { class: "guide" },
+    el("p", { class: "muted", text: tr("guide_intro") }),
+    steps,
     el("p", { class: "muted small" }, tr("guide_alt"), " ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); if (guideModal) guideModal.close(); openSettings("browser", ["cic_follow"]); } }, tr("cdp_title"))),
     guideStatus);
   guideModal = modal({ title: tr("guide_title"), body, wide: true, actions: [{ label: tr("close"), onClick: (m) => m.close() }], onClose: () => { guideModal = null; guideStatus = null; } });
@@ -1131,6 +1143,11 @@ function openSettings(startTab = "switch", focusKeys = []) {
       if (!w.connected) {
         out.push(el("div", {}, el("button", { class: "btn ink", type: "button", onclick: () => { m.close(); openBrowserGuide(); } }, icon("globe"), tr("guide_title"))));
       }
+      // Which browser Claude Bascule works with, when there is a choice.
+      if (BROWSERS.length > 1) {
+        const cur = BROWSERS.find((b) => b.id === d.browser) || BROWSERS.find((b) => d.browser && b.id.split("-")[0] === d.browser.split("-")[0]) || BROWSERS[0];
+        out.push(row("browser", select({ value: cur.id, options: BROWSERS.map((b) => ({ value: b.id, label: b.name })), onChange: (v) => { d.browser = v; touch(); } })));
+      }
       out.push(tg("web_follow"), tg("cic_follow"));
       // Unattended moves through Chrome's accessibility (Linux): the recommended way.
       const ax = w.a11y || "unsupported";
@@ -1311,6 +1328,9 @@ async function refresh() {
     try { render(); } catch (e) { console.error(e); }
   }
 }
+// Browsers installed here (Flatpak ones too on Linux), for the browser choice and the guide.
+let BROWSERS = [];
+invoke("browsers").then((l) => { BROWSERS = l || []; }).catch(() => {});
 booting();
 // A window left open for long: look again when it comes back to the front.
 window.addEventListener("focus", () => {

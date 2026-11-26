@@ -93,6 +93,19 @@ to the service, and long-polls `web.next` for commands (`switch`, `login`).
   next sign-in only. Claude Code's browser tools only reach a Claude in Chrome signed in with the
   same account, so Claude in Chrome follows each switch.
 
+### Flatpak browsers (Linux)
+
+A browser installed with Flatpak (`com.google.Chrome`, `org.chromium.Chromium`,
+`com.brave.Browser`, `com.microsoft.Edge`, `com.vivaldi.Vivaldi`) sees neither `~/.local` nor
+the service's socket, but its sandbox shares its own folder `~/.var/app/<id>` at the same path.
+At start, the service puts in `~/.var/app/<id>/data/claude-bascule/` a copy of `bascule` (the
+native messaging host), a copy of the extension (the folder to load in that browser) and a
+socket, and writes the host's manifest in `~/.var/app/<id>/config/<browser>/NativeMessagingHosts`.
+The host uses the socket next to itself when there is one; that socket answers the browser's
+methods only (`web.hello`, `web.next`, `web.capture`, `web.result`, `web.cic_done`). No Flatpak
+permission is changed. The browser Claude Bascule works with is the setting `browser`
+(`chrome`, `chrome-flatpak`...; Chrome first when empty).
+
 ### Moving Claude in Chrome without the user (Linux)
 
 With Chrome started with `--force-renderer-accessibility` (Claude Bascule adds it to the browsers'

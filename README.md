@@ -83,7 +83,9 @@ Claude Bascule can switch claude.ai in Chrome, Edge, Brave or Chromium along wit
 or on its own from an account's menu. It needs its small companion extension,
 **Claude Bascule Connector**, installed once:
 
-1. Open **Settings → Browser** in Claude Bascule: it shows the extension's folder.
+1. Open **Settings → Browser** in Claude Bascule: it shows the extension's folder for the browser
+   you pick (Chrome, Chromium, Brave, Edge or Vivaldi; on Linux, Flatpak installs too, each with
+   its own copy of the extension).
 2. In the browser, open `chrome://extensions`, turn on **Developer mode**, click
    **Load unpacked** and choose that folder.
 3. Sign each account in to claude.ai once in that browser (the button **Sign in in the browser**
