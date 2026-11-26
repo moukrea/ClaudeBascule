@@ -727,8 +727,9 @@ pub fn browsers() -> Vec<Browser> {
     out
 }
 
-/// Open a browser's extensions page (the browser starts, or opens a tab if it runs).
-/// Open a browser's extensions page (the browser starts, or opens a tab if it runs).
+/// Open a browser with its extensions page (the browser starts, or opens a tab if it runs).
+/// Chrome ignores chrome://extensions on its command line and shows a new tab instead: the app
+/// copies the address for that tab.
 pub fn open_extensions_page(id: &str) -> Result<()> {
     let b = browsers()
         .into_iter()

@@ -642,8 +642,8 @@ async function openBrowserGuide() {
   let list = [];
   try { list = await invoke("browsers"); } catch (e) { list = []; }
   BROWSERS = list;
-  const copy = (text) => {
-    const done = () => { toast(tr("guide_copied")); };
+  const copy = (text, said) => {
+    const done = () => { toast(tr(said || "guide_copied")); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
     else fallback();
     function fallback() { const t = el("textarea", { style: "position:fixed;opacity:0" }); t.value = text; document.body.append(t); t.select(); try { document.execCommand("copy"); done(); } catch (e) {} t.remove(); }
@@ -659,7 +659,10 @@ async function openBrowserGuide() {
     fill(steps,
       el("div", { class: "step" }, el("span", { class: "sn", text: "1" }), el("div", {}, el("div", { class: "st", text: list.length ? tr("guide_s1") : tr("guide_s1_none") }),
         list.length > 1 ? el("div", { class: "path-row" }, list.map((b) => el("button", { class: "btn" + (b === pick ? " ink" : " flat"), type: "button", "aria-pressed": b === pick ? "true" : "false", onclick: () => choose(b) }, b.name))) : null,
-        pick ? el("div", { class: "path-row" }, el("button", { class: "btn" + (list.length > 1 ? "" : " ink"), type: "button", onclick: () => invoke("open_extensions_page", { id: pick.id }).catch((e) => toast(String(e), "bad")) }, icon("globe"), tr("guide_open", { b: pick.name }))) : null)),
+        // Chrome opens a blank tab for chrome://extensions given on its command line: the address
+        // is copied, to paste into the tab the button opens.
+        pick ? el("div", { class: "path-row" }, el("code", { class: "path", text: pick.page }),
+          el("button", { class: "btn" + (list.length > 1 ? "" : " ink"), type: "button", onclick: () => { copy(pick.page, "guide_addr_copied"); invoke("open_extensions_page", { id: pick.id }).catch((e) => toast(String(e), "bad")); } }, icon("globe"), tr("guide_open", { b: pick.name }))) : null)),
       el("div", { class: "step" }, el("span", { class: "sn", text: "2" }), el("div", { class: "st", text: tr("guide_s2") })),
       el("div", { class: "step" }, el("span", { class: "sn", text: "3" }), el("div", {}, el("div", { class: "st", text: tr("guide_s3") }),
         path ? el("div", { class: "path-row" }, el("code", { class: "path", text: path }),
